@@ -48,7 +48,6 @@ android {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.webkit:webkit:1.9.0'
-
-    // No ad SDK yet - this app ships as a plain WebView wrapper first to get
-    // approved/live, then an ad SDK (Appodeal or otherwise) gets wired in later.
+    // Yandex Mobile Ads SDK v8.2.0 (latest as of July 2026)
+    implementation 'com.yandex.android:mobileads:8.2.0'
 }
