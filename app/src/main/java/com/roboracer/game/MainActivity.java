@@ -20,7 +20,6 @@ import com.yandex.mobile.ads.banner.BannerAdSize;
 import com.yandex.mobile.ads.banner.BannerAdView;
 import com.yandex.mobile.ads.common.AdError;
 import com.yandex.mobile.ads.common.AdRequest;
-import com.yandex.mobile.ads.common.AdRequestConfiguration;
 import com.yandex.mobile.ads.common.AdRequestError;
 import com.yandex.mobile.ads.common.ImpressionData;
 import com.yandex.mobile.ads.common.MobileAds;
@@ -38,47 +37,53 @@ import com.yandex.mobile.ads.rewarded.RewardedAdLoader;
  * WebView wrapper for Robo Racer — Yandex Mobile Ads v8.2.0.
  *
  * Ad types and triggers:
- *   Banner       – shown during race (race_start → race_end / pause / reset)
- *   App Open     – shown on first launch and whenever app returns from background
- *   Interstitial – shown after race results screen appears (1.5 s delay)
- *                  and also after the player falls off the track 3 times
- *   Rewarded     – shown when player taps "Watch Ad ×2 Score" on results screen;
- *                  fires app.fire('reward:double_score') back into the game on success
- *                  fires app.fire('reward:cancelled') if dismissed early or unavailable
+ *   Banner       – shown during race only (race_start → race_end / pause / reset)
+ *   App Open     – shown on first launch + whenever app returns from background
+ *   Interstitial – shown 1.5s after race results appear, and after 3 falls off track
+ *   Rewarded     – shown when player taps "Watch Ad ×2 Score" on results screen
  *
  * JS bridge (window.AndroidBridge):
- *   showBanner()      – reveal banner (race active)
- *   hideBanner()      – hide banner (race over / pause / menu)
- *   showInterstitial()– trigger interstitial (called from game JS)
- *   showRewardedAd()  – trigger rewarded ad (called from game JS)
+ *   showBanner()       – reveal banner (race active)
+ *   hideBanner()       – hide banner (race over / pause / menu)
+ *   showInterstitial() – trigger interstitial from game JS
+ *   showRewardedAd()   – trigger rewarded ad from game JS
+ *
+ * Result events fired back into the game via evaluateJavascript:
+ *   app.fire('reward:double_score') – player watched full rewarded video
+ *   app.fire('reward:cancelled')    – ad dismissed early or unavailable
  */
 public class MainActivity extends AppCompatActivity {
 
-    // ─── Ad unit IDs (Yandex dashboard) ──────────────────────────────────────
+    // ── Ad unit IDs from Yandex dashboard ──────────────────────────────────────
     private static final String BANNER_AD_UNIT_ID       = "R-M-19649179-4";
     private static final String INTERSTITIAL_AD_UNIT_ID = "R-M-19649179-1";
     private static final String REWARDED_AD_UNIT_ID     = "R-M-19649179-3";
     private static final String APP_OPEN_AD_UNIT_ID     = "R-M-19649179-2";
 
-    // ─── Views ────────────────────────────────────────────────────────────────
+    // ── Views ──────────────────────────────────────────────────────────────────
     private WebView webView;
     private BannerAdView bannerAdView;
 
-    // ─── Ad objects ───────────────────────────────────────────────────────────
-    private AppOpenAd     appOpenAd;
-    private InterstitialAd interstitialAd;
-    private RewardedAd    rewardedAd;
+    // ── Ad loaders (kept as fields so we can cancelLoading in onDestroy) ───────
+    private AppOpenAdLoader      appOpenAdLoader;
+    private InterstitialAdLoader interstitialAdLoader;
+    private RewardedAdLoader     rewardedAdLoader;
 
-    // ─── State ────────────────────────────────────────────────────────────────
-    private boolean bannerLoaded      = false;
-    private boolean appOpenShown      = false; // true after first-launch show
-    private boolean wasInBackground   = false;
+    // ── Loaded ad objects ──────────────────────────────────────────────────────
+    private AppOpenAd      appOpenAd;
+    private InterstitialAd interstitialAd;
+    private RewardedAd     rewardedAd;
+
+    // ── State ──────────────────────────────────────────────────────────────────
+    private boolean bannerLoaded    = false;
+    private boolean appOpenShown    = false;  // true after first-launch show
+    private boolean wasInBackground = false;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    // =========================================================================
+    // ==========================================================================
     // Lifecycle
-    // =========================================================================
+    // ==========================================================================
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,14 +93,21 @@ public class MainActivity extends AppCompatActivity {
         bannerAdView = findViewById(R.id.bannerAdView);
         bannerAdView.setVisibility(View.GONE);
 
-        // Initialise SDK, then kick off all ad loads in the callback
+        // Create loaders once — reuse them for every subsequent load
+        appOpenAdLoader      = new AppOpenAdLoader(this);
+        interstitialAdLoader = new InterstitialAdLoader(this);
+        rewardedAdLoader     = new RewardedAdLoader(this);
+
+        // Banner uses AdRequest directly; initialise early
+        initBannerAd();
+
+        // Full-screen ads load after SDK initialises
         MobileAds.initialize(this, () -> {
             loadAppOpenAd();
             loadInterstitialAd();
             loadRewardedAd();
         });
 
-        initBannerAd(); // banner uses AdRequest, not AdRequestConfiguration — load early
         initWebView();
     }
 
@@ -111,17 +123,16 @@ public class MainActivity extends AppCompatActivity {
         if (webView != null)      webView.onResume();
         if (bannerAdView != null) bannerAdView.onResume();
 
-        // Show app open ad when user returns from another app
         if (wasInBackground) {
             wasInBackground = false;
-            showAppOpenAd();
+            showAppOpenAd();   // show each time app returns from another app
         }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        // Do NOT call webView.pauseTimers() — pauses JS globally, breaks ad rendering
+        // Do NOT call webView.pauseTimers() — it pauses JS timers globally
         if (webView != null)      webView.onPause();
         if (bannerAdView != null) bannerAdView.onPause();
     }
@@ -129,11 +140,14 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (webView != null)      webView.destroy();
-        if (bannerAdView != null) bannerAdView.destroy();
-        if (appOpenAd != null)    appOpenAd.setAdEventListener(null);
-        if (interstitialAd != null) interstitialAd.setAdEventListener(null);
-        if (rewardedAd != null)   rewardedAd.setAdEventListener(null);
+        appOpenAdLoader.cancelLoading();
+        interstitialAdLoader.cancelLoading();
+        rewardedAdLoader.cancelLoading();
+        if (appOpenAd != null)     { appOpenAd.setAdEventListener(null);     appOpenAd = null; }
+        if (interstitialAd != null){ interstitialAd.setAdEventListener(null); interstitialAd = null; }
+        if (rewardedAd != null)    { rewardedAd.setAdEventListener(null);    rewardedAd = null; }
+        if (webView != null)       webView.destroy();
+        if (bannerAdView != null)  bannerAdView.destroy();
     }
 
     @Override
@@ -145,39 +159,38 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // =========================================================================
+    // ==========================================================================
     // Banner ad
-    // =========================================================================
+    // ==========================================================================
 
     private void initBannerAd() {
-        int widthPx  = getResources().getDisplayMetrics().widthPixels;
-        int density  = (int) getResources().getDisplayMetrics().density;
-        int widthDp  = (density == 0) ? widthPx : widthPx / density;
+        int widthPx = getResources().getDisplayMetrics().widthPixels;
+        int density = (int) getResources().getDisplayMetrics().density;
+        int widthDp = (density == 0) ? widthPx : widthPx / density;
 
         bannerAdView.setAdSize(BannerAdSize.stickySize(this, widthDp));
         bannerAdView.setAdUnitId(BANNER_AD_UNIT_ID);
         bannerAdView.setBannerAdEventListener(new BannerAdEventListener() {
-            @Override public void onAdLoaded()                          { bannerLoaded = true; }
-            @Override public void onAdFailedToLoad(AdRequestError e)   { bannerLoaded = false; }
-            @Override public void onAdClicked()                        {}
-            @Override public void onLeftApplication()                  {}
-            @Override public void onReturnedToApplication()            {}
-            @Override public void onImpression(ImpressionData d)       {}
+            @Override public void onAdLoaded()                        { bannerLoaded = true; }
+            @Override public void onAdFailedToLoad(AdRequestError e)  { bannerLoaded = false; }
+            @Override public void onAdClicked()                       {}
+            @Override public void onLeftApplication()                 {}
+            @Override public void onReturnedToApplication()           {}
+            @Override public void onImpression(ImpressionData d)      {}
         });
         bannerAdView.loadAd(new AdRequest.Builder().build());
     }
 
-    // =========================================================================
+    // ==========================================================================
     // App Open ad — first launch + background return
-    // =========================================================================
+    // ==========================================================================
 
     private void loadAppOpenAd() {
-        AppOpenAdLoader loader = new AppOpenAdLoader(this);
-        loader.setAdLoadListener(new AppOpenAdLoadListener() {
+        AdRequest adRequest = new AdRequest.Builder(APP_OPEN_AD_UNIT_ID).build();
+        appOpenAdLoader.loadAd(adRequest, new AppOpenAdLoadListener() {
             @Override
             public void onAdLoaded(AppOpenAd ad) {
                 appOpenAd = ad;
-                // Show immediately on first launch if not yet shown
                 if (!appOpenShown) {
                     mainHandler.post(() -> showAppOpenAd());
                 }
@@ -187,7 +200,6 @@ public class MainActivity extends AppCompatActivity {
                 appOpenAd = null;
             }
         });
-        loader.loadAd(new AdRequestConfiguration.Builder(APP_OPEN_AD_UNIT_ID).build());
     }
 
     private void showAppOpenAd() {
@@ -196,29 +208,28 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onAdShown()  { appOpenShown = true; }
             @Override public void onAdDismissed() {
                 appOpenAd = null;
-                loadAppOpenAd(); // preload the next one
+                loadAppOpenAd();   // preload next immediately
             }
             @Override public void onAdFailedToShow(AdError e) {
                 appOpenAd = null;
                 loadAppOpenAd();
             }
-            @Override public void onAdClicked()                   {}
-            @Override public void onAdImpression(ImpressionData d){}
+            @Override public void onAdClicked()                    {}
+            @Override public void onAdImpression(ImpressionData d) {}
         });
         appOpenAd.show(this);
     }
 
-    // =========================================================================
+    // ==========================================================================
     // Interstitial ad — after race results and after 3 falls
-    // =========================================================================
+    // ==========================================================================
 
     private void loadInterstitialAd() {
-        InterstitialAdLoader loader = new InterstitialAdLoader(this);
-        loader.setAdLoadListener(new InterstitialAdLoadListener() {
-            @Override public void onAdLoaded(InterstitialAd ad) { interstitialAd = ad; }
-            @Override public void onAdFailedToLoad(AdRequestError e) { interstitialAd = null; }
+        AdRequest adRequest = new AdRequest.Builder(INTERSTITIAL_AD_UNIT_ID).build();
+        interstitialAdLoader.loadAd(adRequest, new InterstitialAdLoadListener() {
+            @Override public void onAdLoaded(InterstitialAd ad)      { interstitialAd = ad; }
+            @Override public void onAdFailedToLoad(AdRequestError e)  { interstitialAd = null; }
         });
-        loader.loadAd(new AdRequestConfiguration.Builder(INTERSTITIAL_AD_UNIT_ID).build());
     }
 
     private void showInterstitialAd() {
@@ -227,38 +238,36 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onAdShown()  {}
             @Override public void onAdDismissed() {
                 interstitialAd = null;
-                loadInterstitialAd(); // preload next immediately
+                loadInterstitialAd();   // preload next immediately
             }
             @Override public void onAdFailedToShow(AdError e) {
                 interstitialAd = null;
                 loadInterstitialAd();
             }
-            @Override public void onAdClicked()                   {}
-            @Override public void onAdImpression(ImpressionData d){}
+            @Override public void onAdClicked()                    {}
+            @Override public void onAdImpression(ImpressionData d) {}
         });
         interstitialAd.show(this);
     }
 
-    // =========================================================================
+    // ==========================================================================
     // Rewarded ad — "Watch Ad ×2 Score" button
-    // =========================================================================
+    // ==========================================================================
 
     private void loadRewardedAd() {
-        RewardedAdLoader loader = new RewardedAdLoader(this);
-        loader.setAdLoadListener(new RewardedAdLoadListener() {
-            @Override public void onAdLoaded(RewardedAd ad) { rewardedAd = ad; }
+        AdRequest adRequest = new AdRequest.Builder(REWARDED_AD_UNIT_ID).build();
+        rewardedAdLoader.loadAd(adRequest, new RewardedAdLoadListener() {
+            @Override public void onAdLoaded(RewardedAd ad)          { rewardedAd = ad; }
             @Override public void onAdFailedToLoad(AdRequestError e) {
                 rewardedAd = null;
-                // Notify game so button reappears
-                fireJsEvent("reward:cancelled");
+                fireJsEvent("reward:cancelled");   // tell button to reappear
             }
         });
-        loader.loadAd(new AdRequestConfiguration.Builder(REWARDED_AD_UNIT_ID).build());
     }
 
     private void showRewardedAdInternal() {
         if (rewardedAd == null) {
-            fireJsEvent("reward:cancelled"); // not loaded yet — tell game
+            fireJsEvent("reward:cancelled");
             return;
         }
         rewardedAd.setAdEventListener(new RewardedAdEventListener() {
@@ -267,7 +276,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onRewarded(Reward reward) {
                 rewarded = true;
-                fireJsEvent("reward:double_score"); // full watch — grant reward
+                fireJsEvent("reward:double_score");
             }
 
             @Override public void onAdShown() {}
@@ -275,10 +284,8 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onAdDismissed() {
                 rewardedAd = null;
-                loadRewardedAd(); // preload next
-                if (!rewarded) {
-                    fireJsEvent("reward:cancelled"); // closed early — no reward
-                }
+                loadRewardedAd();
+                if (!rewarded) fireJsEvent("reward:cancelled");
             }
 
             @Override
@@ -288,28 +295,29 @@ public class MainActivity extends AppCompatActivity {
                 fireJsEvent("reward:cancelled");
             }
 
-            @Override public void onAdClicked()                   {}
-            @Override public void onAdImpression(ImpressionData d){}
+            @Override public void onAdClicked()                    {}
+            @Override public void onAdImpression(ImpressionData d) {}
         });
         rewardedAd.show(this);
     }
 
-    // =========================================================================
+    // ==========================================================================
     // Helpers
-    // =========================================================================
+    // ==========================================================================
 
-    /** Safely evaluate a PlayCanvas event dispatch in the WebView (main thread). */
+    /** Fire a PlayCanvas event back into the WebView on the main thread. */
     private void fireJsEvent(String event) {
         mainHandler.post(() -> {
             if (webView != null) {
-                webView.evaluateJavascript("try{app.fire('" + event + "');}catch(e){}", null);
+                webView.evaluateJavascript(
+                        "try{app.fire('" + event + "');}catch(e){}", null);
             }
         });
     }
 
-    // =========================================================================
+    // ==========================================================================
     // WebView + JavaScript bridge
-    // =========================================================================
+    // ==========================================================================
 
     private void initWebView() {
         webView = findViewById(R.id.webView);
@@ -340,13 +348,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Exposed to PlayCanvas game JS as window.AndroidBridge.
-     * All methods post back to the main thread — WebView JS runs on the main
-     * thread but @JavascriptInterface callbacks run on a Binder thread.
+     * Exposed to PlayCanvas JS as window.AndroidBridge.
+     * @JavascriptInterface methods run on a Binder thread — always post to mainHandler.
      */
     private class AdJsBridge {
 
-        /** Show banner. Called by race_manager.js on race_start. */
         @JavascriptInterface
         public void showBanner() {
             mainHandler.post(() -> {
@@ -354,26 +360,16 @@ public class MainActivity extends AppCompatActivity {
             });
         }
 
-        /** Hide banner. Called on race_end, pause, reset, back-to-menu. */
         @JavascriptInterface
         public void hideBanner() {
             mainHandler.post(() -> bannerAdView.setVisibility(View.GONE));
         }
 
-        /**
-         * Show interstitial. Called by:
-         *  - race_results_script.js  (1.5 s after results appear)
-         *  - race_manager.js         (after 3rd fall off the track)
-         */
         @JavascriptInterface
         public void showInterstitial() {
             mainHandler.post(() -> showInterstitialAd());
         }
 
-        /**
-         * Show rewarded ad. Called by double_score_button.js.
-         * Result fires back as app.fire('reward:double_score') or app.fire('reward:cancelled').
-         */
         @JavascriptInterface
         public void showRewardedAd() {
             mainHandler.post(() -> showRewardedAdInternal());
