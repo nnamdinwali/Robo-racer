@@ -29,7 +29,6 @@ pc.script.create('double_score_button', function(app) {
             app.on('GUI:Title',          this._hideButton,       this);
             app.on('GUI:Track',          this._hideButton,       this);
             app.on('GUI:GetLeaderboard', this._hideButton,       this);
-            app.on('GUI:Pause',          this._hideButton,       this);
             app.on('reward:double_score',this._onRewardEarned,   this);
             app.on('reward:cancelled',   this._onRewardCancelled,this);
 
