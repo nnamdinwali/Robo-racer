@@ -2,6 +2,8 @@
 // - when level loads, start the countdown
 // - update the text string based on countdown
 // - when countdown reaches 3 seconds, send a "race_start" message, and set the text to "" to make it dissapear from the screen.
+// - when countdown fully clears (count >= 4), fires "race_underway" — the first moment
+//   the player is actually racing with no overlay. Banner ads listen for this event.
 
 pc.script.attribute("string_3","string","3",{
     description: "string shown when 3 seconds are left on the countdown."
@@ -22,6 +24,7 @@ pc.script.create('race_start_countdown', function (app) {
         this.entity = entity;
         this.countdown_start = false;
         this.fired = false; //have we fired the start message yet?
+        this.underway_fired = false; //have we fired race_underway yet?
     };
 
     Race_start_countdown.prototype = {
@@ -42,6 +45,7 @@ pc.script.create('race_start_countdown', function (app) {
             this.countdown_start = true;
             this.count = 0;
             this.fired = false;
+            this.underway_fired = false;
         },
         
         destroy : function() {
@@ -53,6 +57,7 @@ pc.script.create('race_start_countdown', function (app) {
         GUI_ResetRace : function() {
             this.countdown_start = true;
             this.fired = false;
+            this.underway_fired = false;
             this.count = 0;
         },
         
@@ -70,11 +75,16 @@ pc.script.create('race_start_countdown', function (app) {
             if(this.countdown_start) {
                 //count down the timer
                 this.count += dt;
-                //console.log(this.count);
                 //check timer and update string as needed
                 if(this.count >= 4) {
                     this.entity.script.font_renderer.text = "";
                     this.countdown_start = false;
+                    // Fire once — this is the first frame the player is truly racing
+                    // with no countdown overlay. Banner ads should appear here.
+                    if (!this.underway_fired) {
+                        this.underway_fired = true;
+                        app.fire("race_underway");
+                    }
                 }
                 if(this.count > 3 && this.count < 4) {
                     this.entity.script.font_renderer.text = this.string_go;
