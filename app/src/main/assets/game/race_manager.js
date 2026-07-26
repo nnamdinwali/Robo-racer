@@ -8,9 +8,10 @@
 // - on lap 3 "new_lap", sends "race_end" message over broadcast, and stops counting time or laps.
 //
 // AD LOGIC (AndroidBridge):
-//   Banner      : shown ~1.5s after race_start (after countdown clears), hidden on race_end / pause / reset
-//   Interstitial: shown after player falls off track 3 times in one race
-//   All calls are no-ops in a browser (no AndroidBridge), so the game works on web too.
+//   Banner      : shown on "race_underway" (countdown fully cleared, player is racing).
+//                 Hidden the moment ANY non-race screen appears.
+//   Interstitial: shown after player falls off track 3 times in one race.
+//   All bridge calls no-op silently in a plain browser.
 
 pc.script.attribute("checkpoint_count","number",4, {
    description: "The highest ID for checkpoints.  A lap is only complete if this one is hit."
@@ -37,15 +38,15 @@ pc.script.create('race_manager', function (app) {
         this.race_running      = false;
         this.rounded_time      = 0;
         this.fired_race_end    = false;
-        this.race_active       = false; // true while race is live (for banner tracking)
-        this.fall_count        = 0;     // falls off track this race (interstitial trigger)
-        this._bannerTimer      = null;  // setTimeout handle for delayed banner show
+        this.race_active       = false; // true only while race is live
+        this.fall_count        = 0;     // falls off track this race
     };
 
     Race_manager.prototype = {
 
         initialize: function () {
             app.on("race_start",     this.race_start,     this);
+            app.on("race_underway",  this.race_underway,  this); // countdown cleared → show banner
             app.on("checkpoint_hit", this.checkpoint_hit, this);
             app.on("new_lap",        this.new_lap,        this);
             app.on("GUI:ResetRace",  this.GUI_ResetRace,  this);
@@ -57,13 +58,37 @@ pc.script.create('race_manager', function (app) {
 
         destroy: function () {
             app.off("race_start",     this.race_start,     this);
+            app.off("race_underway",  this.race_underway,  this);
             app.off("checkpoint_hit", this.checkpoint_hit, this);
             app.off("new_lap",        this.new_lap,        this);
             app.off("GUI:ResetRace",  this.GUI_ResetRace,  this);
             app.off("GUI:Pause",      this.GUI_Pause,      this);
             app.off("GUI:Resume",     this.GUI_Resume,     this);
             app.off("respawn",        this.on_respawn,     this);
-            if (this._bannerTimer) { clearTimeout(this._bannerTimer); this._bannerTimer = null; }
+        },
+
+        // ── Race flow ─────────────────────────────────────────────────────────
+
+        race_start: function () {
+            // Resets state. Banner is NOT shown here — countdown is still visible.
+            this.race_lap       = 1;
+            this.race_lap_time  = 0;
+            this.race_lap_times = [];
+            this.race_time      = 0;
+            this.race_running   = true;
+            this.fired_race_end = false;
+            this.race_active    = true;
+            this.fall_count     = 0;
+            window.globals.CurrentLap = this.race_lap;
+            // Banner is shown in race_underway (fired ~1s later when GO! clears).
+        },
+
+        race_underway: function () {
+            // Fired by race_start_countdown.js the frame the "GO!" text disappears.
+            // This is the only place the banner is shown — guarantees no menu/countdown overlap.
+            if (this.race_active) {
+                _adBridge('showBanner');
+            }
         },
 
         GUI_ResetRace: function () {
@@ -74,21 +99,22 @@ pc.script.create('race_manager', function (app) {
             window.globals.CurrentLap = this.race_lap;
             window.globals.LapTime    = this.round_time(this.race_lap_time);
             window.globals.RaceTime   = this.race_time;
-            _adBridge('hideBanner');
+            _adBridge('hideBanner'); // leaving gameplay — hide immediately
         },
 
         GUI_Pause: function () {
             this.race_running = false;
-            if (this._bannerTimer) { clearTimeout(this._bannerTimer); this._bannerTimer = null; }
-            _adBridge('hideBanner');
+            _adBridge('hideBanner'); // pause screen visible — hide immediately
         },
 
         GUI_Resume: function () {
             this.race_running = true;
             if (this.race_active) {
-                _adBridge('showBanner');
+                _adBridge('showBanner'); // returning to race — show again
             }
         },
+
+        // ── Fall / respawn ────────────────────────────────────────────────────
 
         on_respawn: function () {
             if (!this.race_active) return;
@@ -99,6 +125,8 @@ pc.script.create('race_manager', function (app) {
             }
         },
 
+        // ── Checkpoint / lap logic ────────────────────────────────────────────
+
         checkpoint_hit: function () {
             window.globals.CurrentCheckpoint++;
         },
@@ -106,9 +134,7 @@ pc.script.create('race_manager', function (app) {
         new_lap: function () {
             this.race_lap++;
             window.globals.CurrentCheckpoint = 0;
-            // Reset checkpoint passed-flags so all checkpoints can be re-triggered next lap.
-            // Without this, every checkpoint keeps passed=true and the player can never
-            // complete lap 2 or 3 (the original bug introduced by the AI rewrite).
+            // Reset checkpoint passed-flags so every checkpoint can fire again next lap.
             app.fire("checkpoint_reset");
             this.race_lap_times.push(this.race_lap_time);
             window.globals.RaceTime   = this.race_time;
@@ -116,26 +142,7 @@ pc.script.create('race_manager', function (app) {
             this.race_lap_time        = 0;
         },
 
-        race_start: function () {
-            this.race_lap       = 1;
-            this.race_lap_time  = 0;
-            this.race_lap_times = [];
-            this.race_time      = 0;
-            this.race_running   = true;
-            this.fired_race_end = false;
-            this.race_active    = true;
-            this.fall_count     = 0;
-            window.globals.CurrentLap = this.race_lap;
-            // Delay banner by 1500ms so it doesn't appear during the "3-2-1-Go!" countdown.
-            // race_start fires at count>3 in the countdown script; the "Go!" text stays
-            // for ~1s, so 1500ms ensures the banner only appears once the race is truly live.
-            if (this._bannerTimer) clearTimeout(this._bannerTimer);
-            var self = this;
-            this._bannerTimer = setTimeout(function () {
-                self._bannerTimer = null;
-                if (self.race_active) _adBridge('showBanner');
-            }, 1500);
-        },
+        // ── Timing helpers ────────────────────────────────────────────────────
 
         round_time: function (time) {
             this.rounded_time = Math.round(time * 1000) / 1000;
@@ -154,9 +161,8 @@ pc.script.create('race_manager', function (app) {
                 this.fired_race_end = true;
                 this.race_active    = false;
                 this.race_running   = false;
-                if (this._bannerTimer) { clearTimeout(this._bannerTimer); this._bannerTimer = null; }
                 this.entity.sound.play("finish");
-                _adBridge('hideBanner');
+                _adBridge('hideBanner'); // results screen coming — hide immediately
             }
         },
 
