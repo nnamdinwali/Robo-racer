@@ -9,9 +9,19 @@
 //
 // AD LOGIC (AndroidBridge):
 //   Banner      : shown on "race_underway" (countdown fully cleared, player is racing).
-//                 Hidden the moment ANY non-race screen appears.
+//                 NEVER shown on the menu / title screen (guarded by window.globals.OnTitle).
+//                 Hidden immediately any time the title screen is shown, the race is paused,
+//                 the player quits, or the race ends.
 //   Interstitial: shown after player falls off track 3 times in one race.
 //   All bridge calls no-op silently in a plain browser.
+//
+// ROOT-CAUSE NOTE:
+//   race_start_countdown.js sets countdown_start = true inside onEnable().
+//   GUI_controlhelpdisplay.js auto-dismisses on a timer and enables the
+//   "Race Start Countdown" entity — so the countdown can fire on the title
+//   screen on first load, eventually emitting race_start (race_active = true)
+//   and race_underway.  The fix: every showBanner call is guarded by
+//   !window.globals.OnTitle, AND GUI:Title always hides the banner immediately.
 
 pc.script.attribute("checkpoint_count","number",4, {
    description: "The highest ID for checkpoints.  A lap is only complete if this one is hit."
@@ -20,13 +30,13 @@ pc.script.attribute("checkpoint_count","number",4, {
 // Safe wrapper — only calls AndroidBridge inside the Android WebView.
 function _adBridge(method) {
     try {
-        if (window.AndroidBridge && typeof window.AndroidBridge[method] === 'function') {
+        if (window.AndroidBridge && typeof window.AndroidBridge[method] === "function") {
             window.AndroidBridge[method]();
         }
     } catch (e) {}
 }
 
-pc.script.create('race_manager', function (app) {
+pc.script.create("race_manager", function (app) {
 
     var Race_manager = function (entity) {
         this.entity = entity;
@@ -52,6 +62,7 @@ pc.script.create('race_manager', function (app) {
             app.on("GUI:ResetRace",  this.GUI_ResetRace,  this);
             app.on("GUI:Pause",      this.GUI_Pause,      this);
             app.on("GUI:Resume",     this.GUI_Resume,     this);
+            app.on("GUI:Title",      this.GUI_Title,      this); // hide banner when menu is shown
             app.on("respawn",        this.on_respawn,     this);
             window.globals.MaxCurrentCheckpoint = this.checkpoint_count;
         },
@@ -64,6 +75,7 @@ pc.script.create('race_manager', function (app) {
             app.off("GUI:ResetRace",  this.GUI_ResetRace,  this);
             app.off("GUI:Pause",      this.GUI_Pause,      this);
             app.off("GUI:Resume",     this.GUI_Resume,     this);
+            app.off("GUI:Title",      this.GUI_Title,      this);
             app.off("respawn",        this.on_respawn,     this);
         },
 
@@ -85,9 +97,11 @@ pc.script.create('race_manager', function (app) {
 
         race_underway: function () {
             // Fired by race_start_countdown.js the frame the "GO!" text disappears.
-            // This is the only place the banner is shown — guarantees no menu/countdown overlap.
-            if (this.race_active) {
-                _adBridge('showBanner');
+            // Guard: only show banner when actually racing (not on title/menu).
+            // window.globals.OnTitle is set to true by GUI_Title() / GUI_version_2_manager
+            // and to false only when a track is loaded via _doLoadTrack().
+            if (this.race_active && !window.globals.OnTitle) {
+                _adBridge("showBanner");
             }
         },
 
@@ -99,18 +113,30 @@ pc.script.create('race_manager', function (app) {
             window.globals.CurrentLap = this.race_lap;
             window.globals.LapTime    = this.round_time(this.race_lap_time);
             window.globals.RaceTime   = this.race_time;
-            _adBridge('hideBanner'); // leaving gameplay — hide immediately
+            _adBridge("hideBanner"); // leaving gameplay — hide immediately
+        },
+
+        GUI_Title: function () {
+            // Fired (via app.fire("GUI:Title")) when the menu/title screen is shown.
+            // Note: postInitialize in GUI_version_2_manager calls GUI_Title() directly
+            // (not via app.fire) on first load, so this listener only catches subsequent
+            // navigations — but the OnTitle guard in race_underway covers first load.
+            _adBridge("hideBanner");
+            // Also clear race state so a stale race_active flag cannot leak to the menu.
+            this.race_active  = false;
+            this.race_running = false;
         },
 
         GUI_Pause: function () {
             this.race_running = false;
-            _adBridge('hideBanner'); // pause screen visible — hide immediately
+            _adBridge("hideBanner"); // pause screen visible — hide immediately
         },
 
         GUI_Resume: function () {
             this.race_running = true;
-            if (this.race_active) {
-                _adBridge('showBanner'); // returning to race — show again
+            // Only restore banner if we are genuinely mid-race (not on menu).
+            if (this.race_active && !window.globals.OnTitle) {
+                _adBridge("showBanner"); // returning to race — show again
             }
         },
 
@@ -121,7 +147,7 @@ pc.script.create('race_manager', function (app) {
             this.fall_count++;
             if (this.fall_count >= 3) {
                 this.fall_count = 0;
-                _adBridge('showInterstitial');
+                _adBridge("showInterstitial");
             }
         },
 
@@ -162,7 +188,7 @@ pc.script.create('race_manager', function (app) {
                 this.race_active    = false;
                 this.race_running   = false;
                 this.entity.sound.play("finish");
-                _adBridge('hideBanner'); // results screen coming — hide immediately
+                _adBridge("hideBanner"); // results screen coming — hide immediately
             }
         },
 
