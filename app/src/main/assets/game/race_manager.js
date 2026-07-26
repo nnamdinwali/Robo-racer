@@ -189,6 +189,9 @@ pc.script.create("race_manager", function (app) {
                 this.race_running   = false;
                 this.entity.sound.play("finish");
                 _adBridge("hideBanner"); // results screen coming — hide immediately
+                // Single authoritative interstitial for the win screen.
+                // race_results_script.js does not reliably catch GUI:RaceResults on first enable.
+                setTimeout(function () { _adBridge("showInterstitial"); }, 1500);
             }
         },
 
