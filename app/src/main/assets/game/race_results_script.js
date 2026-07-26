@@ -40,12 +40,7 @@ pc.script.create('race_results_script', function (app) {
         onRaceResults: function () {
             this._happyMomentFired = false;
 
-            // Show interstitial after 1.5 s — player sees their results first,
-            // then the natural break between race and next action shows the ad.
-            if (this._interstitialTimer) clearTimeout(this._interstitialTimer);
-            this._interstitialTimer = setTimeout(function () {
-                _adBridge('showInterstitial');
-            }, 1500);
+            // Interstitial is handled solely by race_manager.js — no duplicate here.
         },
 
         // Fired by Android (via evaluateJavascript) after player watches full rewarded ad.
