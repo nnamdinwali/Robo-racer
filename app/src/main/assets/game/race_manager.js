@@ -189,8 +189,6 @@ pc.script.create("race_manager", function (app) {
                 this.race_running   = false;
                 this.entity.sound.play("finish");
                 _adBridge("hideBanner"); // results screen coming — hide immediately
-                // Show interstitial ~1.5 s after win so player sees the result first
-                setTimeout(function () { _adBridge("showInterstitial"); }, 1500);
             }
         },
 
