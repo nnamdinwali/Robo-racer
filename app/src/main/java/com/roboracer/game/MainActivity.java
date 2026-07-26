@@ -1,5 +1,11 @@
 package com.roboracer.game;
 
+import android.app.AlertDialog;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -7,6 +13,7 @@ import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
@@ -40,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String REWARDED_AD_UNIT_ID     = "R-M-19649179-3";
     private static final String APP_OPEN_AD_UNIT_ID     = "R-M-19649179-2";
 
-    private WebView    webView;
+    private WebView      webView;
     private BannerAdView bannerAdView;
 
     private AppOpenAdLoader      appOpenAdLoader;
@@ -57,14 +64,32 @@ public class MainActivity extends AppCompatActivity {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    // -------------------------------------------------------------------------
-    // Lifecycle
-    // -------------------------------------------------------------------------
+    // ── Network monitoring ────────────────────────────────────────────────────
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private AlertDialog noNetworkDialog;
+    private boolean appStarted = false; // true once startApp() has run
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        registerNetworkCallback();
+
+        if (!isNetworkAvailable()) {
+            showNoNetworkDialog();
+        } else {
+            startApp();
+        }
+    }
+
+    /** Called once we confirm there is a network connection. */
+    private void startApp() {
+        appStarted = true;
 
         bannerAdView = findViewById(R.id.bannerAdView);
         bannerAdView.setVisibility(View.GONE);
@@ -108,14 +133,16 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        appOpenAdLoader.cancelLoading();
-        interstitialAdLoader.cancelLoading();
-        rewardedAdLoader.cancelLoading();
-        if (appOpenAd != null)      { appOpenAd.setAdEventListener(null);      appOpenAd = null; }
+        unregisterNetworkCallback();
+        if (noNetworkDialog != null && noNetworkDialog.isShowing()) noNetworkDialog.dismiss();
+        if (appOpenAdLoader      != null) appOpenAdLoader.cancelLoading();
+        if (interstitialAdLoader != null) interstitialAdLoader.cancelLoading();
+        if (rewardedAdLoader     != null) rewardedAdLoader.cancelLoading();
+        if (appOpenAd      != null) { appOpenAd.setAdEventListener(null);      appOpenAd = null; }
         if (interstitialAd != null) { interstitialAd.setAdEventListener(null); interstitialAd = null; }
-        if (rewardedAd != null)     { rewardedAd.setAdEventListener(null);     rewardedAd = null; }
-        if (bannerAdView != null)   { bannerAdView.destroy();                  bannerAdView = null; }
-        if (webView != null)        { webView.destroy();                        webView = null; }
+        if (rewardedAd     != null) { rewardedAd.setAdEventListener(null);     rewardedAd = null; }
+        if (bannerAdView   != null) { bannerAdView.destroy();                  bannerAdView = null; }
+        if (webView        != null) { webView.destroy();                        webView = null; }
     }
 
     @Override
@@ -124,9 +151,83 @@ public class MainActivity extends AppCompatActivity {
         else super.onBackPressed();
     }
 
-    // -------------------------------------------------------------------------
-    // Banner
-    // -------------------------------------------------------------------------
+    // ── Network monitoring ────────────────────────────────────────────────────
+
+    private void registerNetworkCallback() {
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(@NonNull Network network) {
+                // Network came back — dismiss dialog and start the app if not yet started
+                runOnUiThread(() -> {
+                    if (noNetworkDialog != null && noNetworkDialog.isShowing()) {
+                        noNetworkDialog.dismiss();
+                        noNetworkDialog = null;
+                        if (!appStarted) {
+                            startApp();
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onLost(@NonNull Network network) {
+                // Network dropped mid-session — block the game immediately
+                runOnUiThread(() -> {
+                    if (noNetworkDialog == null || !noNetworkDialog.isShowing()) {
+                        showNoNetworkDialog();
+                    }
+                });
+            }
+        };
+
+        NetworkRequest request = new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build();
+        connectivityManager.registerNetworkCallback(request, networkCallback);
+    }
+
+    private void unregisterNetworkCallback() {
+        if (networkCallback != null && connectivityManager != null) {
+            try {
+                connectivityManager.unregisterNetworkCallback(networkCallback);
+            } catch (Exception e) {
+                // ignore — already unregistered
+            }
+            networkCallback = null;
+        }
+    }
+
+    private boolean isNetworkAvailable() {
+        if (connectivityManager == null) return false;
+        NetworkCapabilities caps =
+                connectivityManager.getNetworkCapabilities(connectivityManager.getActiveNetwork());
+        return caps != null && (
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)     ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));
+    }
+
+    private void showNoNetworkDialog() {
+        if (noNetworkDialog != null && noNetworkDialog.isShowing()) return;
+
+        noNetworkDialog = new AlertDialog.Builder(this)
+                .setTitle("No Internet Connection")
+                .setMessage("Robo Racer requires an internet connection to play. " +
+                        "Please connect to the internet and try again.")
+                .setCancelable(false)
+                .setPositiveButton("Retry", (dialog, which) -> {
+                    noNetworkDialog = null;
+                    if (isNetworkAvailable()) {
+                        if (!appStarted) startApp();
+                    } else {
+                        showNoNetworkDialog();
+                    }
+                })
+                .setNegativeButton("Exit", (dialog, which) -> finishAffinity())
+                .show();
+    }
+
+    // ── Banner ────────────────────────────────────────────────────────────────
 
     private void initBannerAd() {
         int widthPx = getResources().getDisplayMetrics().widthPixels;
@@ -135,17 +236,15 @@ public class MainActivity extends AppCompatActivity {
 
         bannerAdView.setAdSize(BannerAdSize.sticky(this, widthDp));
         bannerAdView.setBannerAdEventListener(new BannerAdEventListener() {
-            @Override public void onAdLoaded()                         { bannerLoaded = true; }
-            @Override public void onAdFailedToLoad(AdRequestError e)  { bannerLoaded = false; }
-            @Override public void onAdClicked()                        {}
-            @Override public void onImpression(ImpressionData d)       {}
+            @Override public void onAdLoaded()                        { bannerLoaded = true; }
+            @Override public void onAdFailedToLoad(AdRequestError e) { bannerLoaded = false; }
+            @Override public void onAdClicked()                       {}
+            @Override public void onImpression(ImpressionData d)      {}
         });
         bannerAdView.loadAd(new AdRequest.Builder(BANNER_AD_UNIT_ID).build());
     }
 
-    // -------------------------------------------------------------------------
-    // App Open
-    // -------------------------------------------------------------------------
+    // ── App Open ──────────────────────────────────────────────────────────────
 
     private void loadAppOpenAd() {
         appOpenAdLoader.loadAd(
@@ -163,24 +262,22 @@ public class MainActivity extends AppCompatActivity {
     private void showAppOpenAd() {
         if (appOpenAd == null) return;
         appOpenAd.setAdEventListener(new AppOpenAdEventListener() {
-            @Override public void onAdShown() { appOpenShown = true; }
-            @Override public void onAdDismissed() { appOpenAd = null; loadAppOpenAd(); }
-            @Override public void onAdFailedToShow(AdError e) { appOpenAd = null; loadAppOpenAd(); }
-            @Override public void onAdClicked() {}
-            @Override public void onAdImpression(ImpressionData d) {}
+            @Override public void onAdShown()                        { appOpenShown = true; }
+            @Override public void onAdDismissed()                    { appOpenAd = null; loadAppOpenAd(); }
+            @Override public void onAdFailedToShow(AdError e)        { appOpenAd = null; loadAppOpenAd(); }
+            @Override public void onAdClicked()                      {}
+            @Override public void onAdImpression(ImpressionData d)   {}
         });
         appOpenAd.show(this);
     }
 
-    // -------------------------------------------------------------------------
-    // Interstitial
-    // -------------------------------------------------------------------------
+    // ── Interstitial ──────────────────────────────────────────────────────────
 
     private void loadInterstitialAd() {
         interstitialAdLoader.loadAd(
             new AdRequest.Builder(INTERSTITIAL_AD_UNIT_ID).build(),
             new InterstitialAdLoadListener() {
-                @Override public void onAdLoaded(InterstitialAd ad)     { interstitialAd = ad; }
+                @Override public void onAdLoaded(InterstitialAd ad)      { interstitialAd = ad; }
                 @Override public void onAdFailedToLoad(AdRequestError e) { interstitialAd = null; }
             }
         );
@@ -189,18 +286,16 @@ public class MainActivity extends AppCompatActivity {
     private void showInterstitialAd() {
         if (interstitialAd == null) return;
         interstitialAd.setAdEventListener(new InterstitialAdEventListener() {
-            @Override public void onAdShown() {}
-            @Override public void onAdDismissed() { interstitialAd = null; loadInterstitialAd(); }
-            @Override public void onAdFailedToShow(AdError e) { interstitialAd = null; loadInterstitialAd(); }
-            @Override public void onAdClicked() {}
-            @Override public void onAdImpression(ImpressionData d) {}
+            @Override public void onAdShown()                        {}
+            @Override public void onAdDismissed()                    { interstitialAd = null; loadInterstitialAd(); }
+            @Override public void onAdFailedToShow(AdError e)        { interstitialAd = null; loadInterstitialAd(); }
+            @Override public void onAdClicked()                      {}
+            @Override public void onAdImpression(ImpressionData d)   {}
         });
         interstitialAd.show(this);
     }
 
-    // -------------------------------------------------------------------------
-    // Rewarded
-    // -------------------------------------------------------------------------
+    // ── Rewarded ──────────────────────────────────────────────────────────────
 
     private void loadRewardedAd() {
         rewardedAdLoader.loadAd(
@@ -219,36 +314,32 @@ public class MainActivity extends AppCompatActivity {
         if (rewardedAd == null) { fireJsEvent("reward:cancelled"); return; }
         rewardedAd.setAdEventListener(new RewardedAdEventListener() {
             private boolean rewarded = false;
-            @Override public void onRewarded(Reward r) { rewarded = true; fireJsEvent("reward:double_score"); }
-            @Override public void onAdShown() {}
-            @Override public void onAdDismissed() {
+            @Override public void onRewarded(Reward r)               { rewarded = true; fireJsEvent("reward:double_score"); }
+            @Override public void onAdShown()                        {}
+            @Override public void onAdDismissed()                    {
                 rewardedAd = null; loadRewardedAd();
                 if (!rewarded) fireJsEvent("reward:cancelled");
             }
-            @Override public void onAdFailedToShow(AdError e) {
+            @Override public void onAdFailedToShow(AdError e)        {
                 rewardedAd = null; loadRewardedAd();
                 fireJsEvent("reward:cancelled");
             }
-            @Override public void onAdClicked() {}
-            @Override public void onAdImpression(ImpressionData d) {}
+            @Override public void onAdClicked()                      {}
+            @Override public void onAdImpression(ImpressionData d)   {}
         });
         rewardedAd.show(this);
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void fireJsEvent(String event) {
         mainHandler.post(() -> {
             if (webView != null)
-                webView.evaluateJavascript("try{app.fire('" + event + "');}catch(e){}", null);
+                webView.evaluateJavascript("try{app.fire( + event + );}catch(e){}", null);
         });
     }
 
-    // -------------------------------------------------------------------------
-    // WebView + JS bridge
-    // -------------------------------------------------------------------------
+    // ── WebView + JS bridge ───────────────────────────────────────────────────
 
     private void initWebView() {
         webView = findViewById(R.id.webView);
