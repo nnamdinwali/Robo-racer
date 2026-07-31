@@ -150,23 +150,17 @@ public class MainActivity extends AppCompatActivity {
         interstitialAdLoader = new InterstitialAdLoader(this);
         rewardedAdLoader     = new RewardedAdLoader(this);
 
-        // FIX: Set the ad unit ID directly on the BannerAdView — Yandex SDK v7+ requires
-        // setAdUnitId() on the view itself; passing the ID only via AdRequest.Builder is not
-        // sufficient for BannerAdView and causes silent load failures.
-        bannerAdView.setAdUnitId(BANNER_AD_UNIT_ID);
-
-        // FIX: Measure banner size first, THEN call initBannerAd() inside the same post()
-        // callback so setAdSize() is guaranteed to run before loadAd().
-        bannerAdView.post(() -> {
-            calculateAndSetBannerSize();
-            // initBannerAd is moved here so the size is always set before the load request.
-        });
-
+        // FIX: Initialize Yandex first, then set the banner size AND start loading inside
+        // a single post() callback so setAdSize() is always called before loadAd().
+        // (Previously calculateAndSetBannerSize and initBannerAd were in separate callbacks
+        // with no ordering guarantee between them.)
         YandexAds.initialize(this, () -> {
             Log.i(TAG, "YandexAds initialized");
-            // Banner load is kicked off AFTER the post() callback has set the size.
-            // We use another post() here so we are guaranteed to be after the size post().
-            bannerAdView.post(() -> initBannerAd());
+            // Both size and load happen sequentially in one post() — ordering guaranteed.
+            bannerAdView.post(() -> {
+                calculateAndSetBannerSize();
+                initBannerAd();
+            });
             loadAppOpenAd();
             loadInterstitialAd();
             loadRewardedAd();
@@ -319,9 +313,7 @@ public class MainActivity extends AppCompatActivity {
                 Log.i(TAG, "Banner impression");
             }
         });
-        // FIX: Do NOT pass the unit ID to AdRequest.Builder — we already called setAdUnitId()
-        // on the view. Passing a different ID here can cause a mismatch in SDK v7+.
-        bannerAdView.loadAd(new AdRequest.Builder().build());
+        bannerAdView.loadAd(new AdRequest.Builder(BANNER_AD_UNIT_ID).build());
         Log.i(TAG, "Banner ad load request sent for unit: " + BANNER_AD_UNIT_ID);
     }
 
