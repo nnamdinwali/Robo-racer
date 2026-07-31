@@ -109,6 +109,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean bannerLoaded    = false;
     private boolean bannerRequested = false;
     private boolean appOpenShown    = false;
+    private boolean wasInBackground = false; // for app-open ad on foreground
 
     // Track whether we temporarily flipped to portrait for app-open ad
     private boolean portraitOverrideActive = false;
@@ -165,18 +166,7 @@ public class MainActivity extends AppCompatActivity {
             loadInterstitialAd();
             loadRewardedAd();
 
-            // Register the Yandex-recommended DefaultProcessLifecycleObserver
-            // for automatic app-open ad display on foreground transitions.
-            try {
-                com.yandex.mobile.ads.appopenad.DefaultProcessLifecycleObserver processObserver =
-                    new com.yandex.mobile.ads.appopenad.DefaultProcessLifecycleObserver(
-                        () -> showAppOpenAdInternal()
-                    );
-                androidx.lifecycle.ProcessLifecycleOwner.get().getLifecycle().addObserver(processObserver);
-                Log.i(TAG, "DefaultProcessLifecycleObserver registered for app-open ads");
-            } catch (Throwable t) {
-                Log.w(TAG, "Could not register DefaultProcessLifecycleObserver: " + t.getMessage());
-            }
+            // App-open ad on foreground is handled by onResume() via wasInBackground flag.
         });
 
         initWebView();
@@ -186,13 +176,15 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
-        // FIX: Only restore landscape in onResume if we are NOT waiting for the ad to appear.
-        // When portraitOverrideActive=true AND waitingForPortraitFlip=true, the 350ms delay
-        // has not elapsed yet — restoring landscape here would flip the screen back before the
-        // app-open ad even has a chance to show.  Let the ad dismissal / failure callbacks
-        // handle the restore in that case.
+        // Only restore landscape when the 350ms delay has elapsed (ad is on screen).
+        // If waitingForPortraitFlip is still true the ad hasn't shown yet — don't flip back early.
         if (portraitOverrideActive && !waitingForPortraitFlip) {
             restoreLandscape();
+        }
+        // Show app-open ad when returning from background.
+        if (wasInBackground && appStarted) {
+            wasInBackground = false;
+            showAppOpenAdInternal();
         }
     }
 
@@ -200,6 +192,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         if (webView != null) webView.onPause();
+        wasInBackground = true;
     }
 
     @Override
@@ -304,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onAdFailedToLoad(AdRequestError e) {
                 bannerLoaded = false;
-                Log.w(TAG, "Banner ad failed to load: " + e.getErrorCode() + " / " + e.getDescription());
+                Log.w(TAG, "Banner ad failed to load: " + e.toString());
             }
             @Override public void onAdClicked() {
                 Log.i(TAG, "Banner clicked");
@@ -407,7 +400,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 @Override
                 public void onAdFailedToLoad(AdRequestError e) {
-                    Log.w(TAG, "App-open ad failed to load: " + e.getErrorCode() + " / " + e.getDescription());
+                    Log.w(TAG, "App-open ad failed to load: " + e.toString());
                     appOpenAd = null;
                 }
             }
@@ -435,7 +428,7 @@ public class MainActivity extends AppCompatActivity {
                 loadAppOpenAd();
             }
             @Override public void onAdFailedToShow(AdError e) {
-                Log.w(TAG, "App-open ad failed to show: " + e.getErrorCode() + " / " + e.getDescription());
+                Log.w(TAG, "App-open ad failed to show: " + e.toString());
                 appOpenAd = null;
                 // Restore landscape even on failure
                 if (portraitOverrideActive) {
@@ -473,7 +466,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onAdFailedToLoad(AdRequestError e) {
                     interstitialAd = null;
-                    Log.w(TAG, "Interstitial ad failed to load: " + e.getErrorCode() + " / " + e.getDescription());
+                    Log.w(TAG, "Interstitial ad failed to load: " + e.toString());
                 }
             }
         );
@@ -494,7 +487,7 @@ public class MainActivity extends AppCompatActivity {
                 loadInterstitialAd();
             }
             @Override public void onAdFailedToShow(AdError e) {
-                Log.w(TAG, "Interstitial failed to show: " + e.getErrorCode() + " / " + e.getDescription());
+                Log.w(TAG, "Interstitial failed to show: " + e.toString());
                 interstitialAd = null;
                 loadInterstitialAd();
             }
@@ -528,7 +521,7 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onAdFailedToLoad(AdRequestError e) {
                     rewardedAd = null;
-                    Log.w(TAG, "Rewarded ad failed to load: " + e.getErrorCode() + " / " + e.getDescription());
+                    Log.w(TAG, "Rewarded ad failed to load: " + e.toString());
                     fireJsEvent("reward:cancelled");
                 }
             }
@@ -558,7 +551,7 @@ public class MainActivity extends AppCompatActivity {
                 if (!rewarded) fireJsEvent("reward:cancelled");
             }
             @Override public void onAdFailedToShow(AdError e) {
-                Log.w(TAG, "Rewarded ad failed to show: " + e.getErrorCode() + " / " + e.getDescription());
+                Log.w(TAG, "Rewarded ad failed to show: " + e.toString());
                 rewardedAd = null;
                 loadRewardedAd();
                 fireJsEvent("reward:cancelled");
