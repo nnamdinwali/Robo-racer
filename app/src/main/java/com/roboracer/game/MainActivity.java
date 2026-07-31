@@ -254,7 +254,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onAdDismissed() { appOpenAd = null; loadAppOpenAd(); }
             @Override public void onAdFailedToShow(AdError e) { appOpenAd = null; loadAppOpenAd(); }
             @Override public void onAdClicked() {}
-            @Override public void onImpression(ImpressionData d) {}
+            @Override public void onAdImpression(ImpressionData d) {}
         });
         appOpenAd.show(this);
     }
@@ -304,7 +304,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onAdDismissed() { rewardedAd = null; loadRewardedAd(); if (!rewarded) fireJsEvent("reward:cancelled"); }
             @Override public void onAdFailedToShow(AdError e) { rewardedAd = null; loadRewardedAd(); fireJsEvent("reward:cancelled"); }
             @Override public void onAdClicked() {}
-            @Override public void onImpression(ImpressionData d) {}
+            @Override public void onAdImpression(ImpressionData d) {}
         });
         rewardedAd.show(this);
     }
