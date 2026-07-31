@@ -50,6 +50,7 @@ pc.script.create("race_manager", function (app) {
         this.fired_race_end    = false;
         this.race_active       = false; // true only while race is live
         this.fall_count        = 0;     // falls off track this race
+        this._bannerShown      = false; // track whether we already showed banner this race
     };
 
     Race_manager.prototype = {
@@ -91,6 +92,7 @@ pc.script.create("race_manager", function (app) {
             this.fired_race_end = false;
             this.race_active    = true;
             this.fall_count     = 0;
+            this._bannerShown   = false; // reset so banner can show for this new race
             window.globals.CurrentLap = this.race_lap;
             // Banner is shown in race_underway (fired ~1s later when GO! clears).
         },
@@ -102,6 +104,7 @@ pc.script.create("race_manager", function (app) {
             // and to false only when a track is loaded via _doLoadTrack().
             if (this.race_active && !window.globals.OnTitle) {
                 _adBridge("showBanner");
+                this._bannerShown = true;
             }
         },
 
@@ -125,6 +128,7 @@ pc.script.create("race_manager", function (app) {
             // Also clear race state so a stale race_active flag cannot leak to the menu.
             this.race_active  = false;
             this.race_running = false;
+            this._bannerShown = false;
         },
 
         GUI_Pause: function () {
@@ -187,6 +191,7 @@ pc.script.create("race_manager", function (app) {
                 this.fired_race_end = true;
                 this.race_active    = false;
                 this.race_running   = false;
+                this._bannerShown   = false;
                 this.entity.sound.play("finish");
                 _adBridge("hideBanner"); // results screen coming — hide immediately
                 // Single authoritative interstitial for the win screen.

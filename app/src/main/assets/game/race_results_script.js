@@ -1,8 +1,7 @@
-//race results screen script — updates labels and triggers ads.
+//race results screen script — updates labels and handles rewarded ad response.
 //
 // AD LOGIC:
-//   Interstitial: shown 1.5 s after results screen appears, giving the player
-//                 time to see their score before the full-screen ad appears.
+//   Interstitial: shown 1.5 s after results screen appears — handled by race_manager.js
 //   Rewarded    : reward:double_score event doubles PlayerScore (fired by Android
 //                 after player watches the full rewarded video in double_score_button.js)
 
@@ -13,15 +12,6 @@ pc.script.attribute("this_race_score_label","entity",null);
 pc.script.attribute("best_race_score_label","entity",null);
 pc.script.attribute("show_new_best_time_label","entity",null);
 pc.script.attribute("show_new_best_score_label","entity",null);
-
-// Safe AndroidBridge helper — no-op in a plain browser.
-function _adBridge(method) {
-    try {
-        if (window.AndroidBridge && typeof window.AndroidBridge[method] === 'function') {
-            window.AndroidBridge[method]();
-        }
-    } catch (e) {}
-}
 
 pc.script.create('race_results_script', function (app) {
     var Race_results_script = function (entity) {
@@ -61,10 +51,7 @@ pc.script.create('race_results_script', function (app) {
                 this.show_new_best_score_label.enabled = true;
             }
 
-            if (typeof GamePix !== "undefined") {
-                GamePix.updateScore(window.globals.PlayerScore);
-                GamePix.happyMoment();
-            }
+            // Note: GamePix calls removed — all ad logic now goes through AndroidBridge
         },
 
         update: function (dt) {
@@ -93,9 +80,7 @@ pc.script.create('race_results_script', function (app) {
             this.show_new_best_score_label.enabled = window.globals.NewScoreRecord;
 
             if (!this._happyMomentFired && (window.globals.NewTimeRecord || window.globals.NewScoreRecord)) {
-                if (typeof GamePix !== "undefined") {
-                    GamePix.happyMoment();
-                }
+                // GamePix.happyMoment() removed — ad logic now via AndroidBridge
                 this._happyMomentFired = true;
             }
         }

@@ -1,25 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Layout: WebView takes all available space above the banner.
-  BannerAdView sits at the bottom, visibility=gone by default.
-  The game JS calls AndroidBridge.showBanner()/hideBanner() to toggle it.
-  This ensures the banner never overlaps game UI (Huawei AppGallery compliant).
+  Layout: FrameLayout keeps WebView at full screen size.
+  BannerAdView overlays the bottom without shrinking the WebView.
+  bannerPlaceholder is an invisible View that reserves space at the bottom
+  so the WebView content is pushed up and doesn't render behind the banner.
+
+  BEFORE (LinearLayout bug):
+    WebView had layout_weight="1" and layout_height="0dp", so when the banner
+    became visible, the LinearLayout shrunk the WebView height. The PlayCanvas
+    scene was rendered for the original full-screen height but displayed in a
+    smaller area — causing the "banner lifted the scene up" visual glitch.
+
+  AFTER (FrameLayout fix):
+    WebView stays full-screen. Banner overlays the bottom. WebView gets
+    bottom-padding equal to the banner height when the banner is shown,
+    so the canvas reflows cleanly.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:layout_height="match_parent">
 
     <WebView
         android:id="@+id/webView"
         android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Invisible placeholder that reserves bottom space for the banner -->
+    <View
+        android:id="@+id/bannerPlaceholder"
+        android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_gravity="bottom"
+        android:visibility="gone" />
 
     <com.yandex.mobile.ads.banner.BannerAdView
         android:id="@+id/bannerAdView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
         android:visibility="gone" />
 
-</LinearLayout>
+</FrameLayout>

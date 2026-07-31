@@ -3,6 +3,16 @@
 //also will handle disposing the menu and loading a track scene.
 //
 //pc.script.attribute("menu_level_root","entity",null);
+//
+// AD INTEGRATION NOTE:
+//   The old GamePix SDK interstitial calls (ad:start / ad:end / GamePix.interstitialAd)
+//   have been REMOVED.  All interstitial ad logic is now handled by the
+//   AndroidBridge (Android wrapper) and triggered from race_manager.js:
+//     - Fall count (3 falls → interstitial)  → race_manager.on_respawn()
+//     - Race end (lap 3 complete → interstitial) → race_manager.race_logic_update()
+//     - Menu reset from results           → race_manager.GUI_ResetRace()
+//   The banner is also managed exclusively by race_manager.js via AndroidBridge.
+//   This file no longer contains any ad logic.
 
 pc.script.create('GUI_version_2_manager', function (app) {
     // Creates a new GUI_version_2_manager instance
@@ -55,47 +65,21 @@ pc.script.create('GUI_version_2_manager', function (app) {
         },
         
         GUI_ResetRace: function(id) {
-            var self = this;
-            var doReset = function() {
-                self.hide_all();
-                self.show_in_game();
-                self.show_pause_button();
-                
-                //also set the track correctly
+            this.hide_all();
+            this.show_in_game();
+            this.show_pause_button();
+            
+            //also set the track correctly
+            window.globals.CurrentTrack = 1;
+            if(this.track1_objects) {
                 window.globals.CurrentTrack = 1;
-                if(self.track1_objects) {
-                    window.globals.CurrentTrack = 1;
-                }
-                if(self.track2_objects) {
-                    window.globals.CurrentTrack = 2;
-                }
-            };
-
-            // If we're resetting from the race results, show an ad first
-            if (typeof GamePix !== "undefined" && !window.globals.OnTitle) {
-                app.timeScale = 0;
-                app.fire("ad:start");
-                GamePix.interstitialAd().then(function(res) {
-                    app.timeScale = 1;
-                    app.fire("ad:end");
-                    doReset();
-                });
-            } else {
-                doReset();
+            }
+            if(this.track2_objects) {
+                window.globals.CurrentTrack = 2;
             }
         },
         
         GUI_Title: function(id) {
-            //show interstitial ad when returning to menu from gameplay
-            if (typeof GamePix !== "undefined" && !window.globals.OnTitle) {
-                app.timeScale = 0;
-                app.fire("ad:start");
-                GamePix.interstitialAd().then(function(res) {
-                    app.timeScale = 1;
-                    app.fire("ad:end");
-                });
-            }
-
             //unload all scenes except menu
             this.unload_track1();
             this.unload_track2();
@@ -124,6 +108,10 @@ pc.script.create('GUI_version_2_manager', function (app) {
             //can't be paused on the title screen, force the game to be unpaused.
             window.globals.IsPaused = false;
             
+            // Also fire the GUI:Title event so race_manager.js hides the banner
+            // (this catches the case where GUI_Title was called directly from
+            // postInitialize without going through app.fire)
+            app.fire("GUI:Title");
         },
         
         GUI_Pause: function(id) {
@@ -163,7 +151,7 @@ pc.script.create('GUI_version_2_manager', function (app) {
             this.show_pause_button();
         },
 
-        //internal helper: actually loads and starts a track after ad is done
+        //internal helper: actually loads and starts a track
         _doLoadTrack: function(tracknumber) {
             this.unload_title();
             this.hide_all();
@@ -175,7 +163,6 @@ pc.script.create('GUI_version_2_manager', function (app) {
                 this.show_in_game();
                 window.globals.CurrentTrack = 1;
                 window.globals.OnTitle = false;
-                if (typeof GamePix !== "undefined") { GamePix.updateLevel(1); }
             }
 
             if(tracknumber == 2) {
@@ -185,25 +172,15 @@ pc.script.create('GUI_version_2_manager', function (app) {
                 this.show_in_game();
                 window.globals.CurrentTrack = 2;
                 window.globals.OnTitle = false;
-                if (typeof GamePix !== "undefined") { GamePix.updateLevel(2); }
             }
         },
         
         GUI_Track: function(tracknumber) {
             var self = this;
-            //show interstitial ad when player clicks Play — pause game and music first
-            if (typeof GamePix !== "undefined") {
-                app.timeScale = 0;
-                app.fire("ad:track_select");
-                app.fire("ad:start");
-                GamePix.interstitialAd().then(function(res) {
-                    app.timeScale = 1;
-                    app.fire("ad:end");
-                    self._doLoadTrack(tracknumber);
-                });
-            } else {
-                this._doLoadTrack(tracknumber);
-            }
+            // No ad delay — go straight to loading the track.
+            // Interstitial ads on track select are now handled by race_manager.js
+            // (race end interstitial covers this scenario).
+            this._doLoadTrack(tracknumber);
         },
         
         hide_all : function() {
@@ -232,17 +209,8 @@ pc.script.create('GUI_version_2_manager', function (app) {
 
             this._fallCount++;
 
-            if (this._fallCount >= 3) {
-                this._fallCount = 0; // reset so it can trigger again after 3 more falls
-                if (typeof GamePix !== "undefined") {
-                    app.timeScale = 0;
-                    app.fire("ad:start");
-                    GamePix.interstitialAd().then(function(res) {
-                        app.timeScale = 1;
-                        app.fire("ad:end");
-                    });
-                }
-            }
+            // Fall-count interstitial is now handled by race_manager.on_respawn()
+            // via AndroidBridge — no GamePix logic needed here.
         },
 
         show_pause_screen : function() {
@@ -397,7 +365,7 @@ pc.script.create('GUI_version_2_manager', function (app) {
             });
         },
         
-        
+
 
         // Called every frame, dt is time in seconds since last update
         update: function (dt) {
