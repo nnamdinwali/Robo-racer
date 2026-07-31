@@ -150,14 +150,23 @@ public class MainActivity extends AppCompatActivity {
         interstitialAdLoader = new InterstitialAdLoader(this);
         rewardedAdLoader     = new RewardedAdLoader(this);
 
-        // Measure the banner ad size AFTER layout is ready so we can reserve space
+        // FIX: Set the ad unit ID directly on the BannerAdView — Yandex SDK v7+ requires
+        // setAdUnitId() on the view itself; passing the ID only via AdRequest.Builder is not
+        // sufficient for BannerAdView and causes silent load failures.
+        bannerAdView.setAdUnitId(BANNER_AD_UNIT_ID);
+
+        // FIX: Measure banner size first, THEN call initBannerAd() inside the same post()
+        // callback so setAdSize() is guaranteed to run before loadAd().
         bannerAdView.post(() -> {
             calculateAndSetBannerSize();
+            // initBannerAd is moved here so the size is always set before the load request.
         });
 
         YandexAds.initialize(this, () -> {
             Log.i(TAG, "YandexAds initialized");
-            initBannerAd();
+            // Banner load is kicked off AFTER the post() callback has set the size.
+            // We use another post() here so we are guaranteed to be after the size post().
+            bannerAdView.post(() -> initBannerAd());
             loadAppOpenAd();
             loadInterstitialAd();
             loadRewardedAd();
@@ -183,8 +192,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
-        // If portrait override is active, restore landscape
-        if (portraitOverrideActive) {
+        // FIX: Only restore landscape in onResume if we are NOT waiting for the ad to appear.
+        // When portraitOverrideActive=true AND waitingForPortraitFlip=true, the 350ms delay
+        // has not elapsed yet — restoring landscape here would flip the screen back before the
+        // app-open ad even has a chance to show.  Let the ad dismissal / failure callbacks
+        // handle the restore in that case.
+        if (portraitOverrideActive && !waitingForPortraitFlip) {
             restoreLandscape();
         }
     }
@@ -306,7 +319,9 @@ public class MainActivity extends AppCompatActivity {
                 Log.i(TAG, "Banner impression");
             }
         });
-        bannerAdView.loadAd(new AdRequest.Builder(BANNER_AD_UNIT_ID).build());
+        // FIX: Do NOT pass the unit ID to AdRequest.Builder — we already called setAdUnitId()
+        // on the view. Passing a different ID here can cause a mismatch in SDK v7+.
+        bannerAdView.loadAd(new AdRequest.Builder().build());
         Log.i(TAG, "Banner ad load request sent for unit: " + BANNER_AD_UNIT_ID);
     }
 

@@ -24,6 +24,7 @@ pc.script.create('GUI_version_2_manager', function (app) {
         // Called once after all resources are loaded and before the first update
         initialize: function () {
             this._fallCount = 0;
+            this._titleEventInProgress = false; // FIX: guard against recursive GUI:Title firing
             
             //variable for the contents of the scene
             this.loaded_entities = [false,false,false,false];
@@ -80,6 +81,16 @@ pc.script.create('GUI_version_2_manager', function (app) {
         },
         
         GUI_Title: function(id) {
+            // FIX: Guard against infinite recursion.
+            // When postInitialize() calls this.GUI_Title() directly (not via app.fire),
+            // the function fires app.fire("GUI:Title") at the end so that OTHER listeners
+            // (e.g. race_manager) also get the event.  But because GUI_version_2_manager
+            // is ALSO registered as a listener for "GUI:Title", the fire() would call
+            // this function again, causing infinite recursion and corrupting globals.
+            // The guard prevents re-entry without stopping other listeners from running.
+            if (this._titleEventInProgress) return;
+            this._titleEventInProgress = true;
+
             //unload all scenes except menu
             this.unload_track1();
             this.unload_track2();
@@ -108,10 +119,11 @@ pc.script.create('GUI_version_2_manager', function (app) {
             //can't be paused on the title screen, force the game to be unpaused.
             window.globals.IsPaused = false;
             
-            // Also fire the GUI:Title event so race_manager.js hides the banner
-            // (this catches the case where GUI_Title was called directly from
-            // postInitialize without going through app.fire)
+            // Fire the event so race_manager.js (and any other listeners) hide the banner.
+            // The guard above prevents us from calling ourselves again.
             app.fire("GUI:Title");
+
+            this._titleEventInProgress = false;
         },
         
         GUI_Pause: function(id) {
