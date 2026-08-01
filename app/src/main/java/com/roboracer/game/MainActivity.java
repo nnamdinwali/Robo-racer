@@ -337,21 +337,27 @@ public class MainActivity extends AppCompatActivity {
     private void showAppOpenAdInternal() {
         int currentOrientation = getResources().getConfiguration().orientation;
         if (currentOrientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {
-            // Already portrait — show directly
+            // Already portrait — show immediately
             showAppOpenAd();
         } else {
-            // We're in landscape — must flip to portrait first
-            Log.i(TAG, "Landscape detected — flipping to portrait for app-open ad");
+            // Landscape — request portrait. onConfigurationChanged() fires the exact
+            // frame Android confirms portrait, then calls showAppOpenAd() immediately.
+            // No blind timer — cleaner and faster than a fixed 350ms delay.
+            Log.i(TAG, "Requesting portrait for app-open ad");
             waitingForPortraitFlip = true;
             portraitOverrideActive = true;
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-            // Delay show to give Android time to reconfigure the orientation
-            mainHandler.postDelayed(() -> {
-                if (waitingForPortraitFlip) {
-                    waitingForPortraitFlip = false;
-                    showAppOpenAd();
-                }
-            }, 350); // 350ms is enough for orientation change
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        if (waitingForPortraitFlip &&
+                newConfig.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {
+            // Portrait is confirmed — show the ad right now
+            waitingForPortraitFlip = false;
+            showAppOpenAd();
         }
     }
 
