@@ -105,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
     private RewardedAd     rewardedAd;
 
     private boolean bannerLoaded    = false;
-    private boolean bannerRequested = false;
+    private boolean bannerRequested = true; // auto-show banner as soon as it loads
     private boolean appOpenShown    = false;
     private boolean wasInBackground = false; // for app-open ad on foreground
 
