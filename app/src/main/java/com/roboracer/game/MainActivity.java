@@ -386,6 +386,11 @@ public class MainActivity extends AppCompatActivity {
     private void showAppOpenAd() {
         if (appOpenAd == null) {
             Log.w(TAG, "App-open ad is null, preloading for next time");
+            // Must restore landscape here — we may have already flipped to portrait
+            // for this ad attempt. Without this the game stays portrait permanently.
+            if (portraitOverrideActive) {
+                mainHandler.post(() -> restoreLandscape());
+            }
             loadAppOpenAd();
             return;
         }
@@ -424,6 +429,9 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             Log.e(TAG, "Exception showing app-open ad: " + e.getMessage());
             appOpenAd = null;
+            if (portraitOverrideActive) {
+                mainHandler.post(() -> restoreLandscape());
+            }
             loadAppOpenAd();
         }
     }

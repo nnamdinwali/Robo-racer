@@ -116,16 +116,12 @@ pc.script.create("race_manager", function (app) {
             window.globals.CurrentLap = this.race_lap;
             window.globals.LapTime    = this.round_time(this.race_lap_time);
             window.globals.RaceTime   = this.race_time;
-            _adBridge("hideBanner"); // leaving gameplay — hide immediately
+            // Banner stays visible — it lives below the game, not over it.
         },
 
         GUI_Title: function () {
             // Fired (via app.fire("GUI:Title")) when the menu/title screen is shown.
-            // Note: postInitialize in GUI_version_2_manager calls GUI_Title() directly
-            // (not via app.fire) on first load, so this listener only catches subsequent
-            // navigations — but the OnTitle guard in race_underway covers first load.
-            _adBridge("hideBanner");
-            // Also clear race state so a stale race_active flag cannot leak to the menu.
+            // Banner stays visible on the title screen — no need to hide it.
             this.race_active  = false;
             this.race_running = false;
             this._bannerShown = false;
@@ -133,7 +129,7 @@ pc.script.create("race_manager", function (app) {
 
         GUI_Pause: function () {
             this.race_running = false;
-            _adBridge("hideBanner"); // pause screen visible — hide immediately
+            // Banner stays visible on the pause screen.
         },
 
         GUI_Resume: function () {
@@ -193,7 +189,7 @@ pc.script.create("race_manager", function (app) {
                 this.race_running   = false;
                 this._bannerShown   = false;
                 this.entity.sound.play("finish");
-                _adBridge("hideBanner"); // results screen coming — hide immediately
+                // Banner stays visible on the results screen.
                 // Single authoritative interstitial for the win screen.
                 // race_results_script.js does not reliably catch GUI:RaceResults on first enable.
                 setTimeout(function () { _adBridge("showInterstitial"); }, 1500);
