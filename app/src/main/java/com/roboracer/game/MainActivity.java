@@ -13,7 +13,6 @@ import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
@@ -96,7 +95,6 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView      webView;
     private BannerAdView bannerAdView;
-    private View         bannerPlaceholder; // invisible spacer to reserve bottom space
 
     private AppOpenAdLoader      appOpenAdLoader;
     private InterstitialAdLoader interstitialAdLoader;
@@ -142,10 +140,8 @@ public class MainActivity extends AppCompatActivity {
     private void startApp() {
         appStarted = true;
 
-        bannerAdView    = findViewById(R.id.bannerAdView);
-        bannerPlaceholder = findViewById(R.id.bannerPlaceholder);
+        bannerAdView = findViewById(R.id.bannerAdView);
         bannerAdView.setVisibility(View.GONE);
-        bannerPlaceholder.setVisibility(View.GONE);
 
         appOpenAdLoader      = new AppOpenAdLoader(this);
         interstitialAdLoader = new InterstitialAdLoader(this);
@@ -311,41 +307,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Show the banner view AND set bottom padding on the WebView so the game
-     * canvas reflows to avoid the "lifted scene" visual bug.
+     * Show the banner below the WebView.
+     * LinearLayout naturally reserves space for the banner row — no padding tricks needed.
      */
     private void showBannerView() {
         runOnUiThread(() -> {
-            if (bannerAdView == null || bannerPlaceholder == null) return;
-            // Show the actual ad view
+            if (bannerAdView == null) return;
             bannerAdView.setVisibility(View.VISIBLE);
-            // Show placeholder to push webview content up
-            bannerPlaceholder.setVisibility(View.VISIBLE);
-            // Ensure WebView has bottom padding so canvas doesn't overlap the ad
-            if (webView != null) {
-                ViewGroup.LayoutParams lp = webView.getLayoutParams();
-                // WebView stays match_parent (FrameLayout) but we add bottom margin
-                // to the parent FrameLayout's children arrangement.
-                // Actually with FrameLayout we use gravity bottom on the banner
-                // and the webview stays full. We just need to ensure the webview
-                // doesn't render behind the banner — so we set bottom padding.
-                int bannerHeight = bannerAdView.getHeight();
-                if (bannerHeight <= 0) {
-                    // If height not yet measured, use a reasonable default (~50dp)
-                    float density = getResources().getDisplayMetrics().density;
-                    bannerHeight = (int) (50 * density);
-                }
-                webView.setPadding(0, 0, 0, bannerHeight);
-                Log.i(TAG, "WebView bottom padding set to " + bannerHeight + "px for banner");
-            }
+            Log.i(TAG, "Banner shown");
         });
     }
 
     private void hideBannerView() {
         runOnUiThread(() -> {
             if (bannerAdView != null) bannerAdView.setVisibility(View.GONE);
-            if (bannerPlaceholder != null) bannerPlaceholder.setVisibility(View.GONE);
-            if (webView != null) webView.setPadding(0, 0, 0, 0);
+            Log.i(TAG, "Banner hidden");
         });
     }
 
