@@ -49,6 +49,30 @@ android {
     }
 }
 
+// AdMob and Meta/Facebook are intentionally not part of Robo Racer.
+// Keep these exclusions global so a future or transitive dependency cannot
+// reintroduce either network through another configuration.
+configurations.configureEach {
+    // Appodeal mediation modules
+    exclude group: 'com.appodeal.ads.sdk.networks', module: 'admob'
+    exclude group: 'com.appodeal.ads.sdk.networks', module: 'meta'
+    exclude group: 'com.appodeal.ads.sdk.networks', module: 'facebook'
+    exclude group: 'com.appodeal.ads.sdk.networks', module: 'google_ad_manager'
+    exclude group: 'com.appodeal.ads.sdk.services', module: 'facebook_analytics'
+
+    // Underlying Google/AdMob and Meta/Facebook artifacts
+    exclude group: 'com.google.android.gms', module: 'play-services-ads'
+    exclude group: 'com.google.android.gms', module: 'play-services-ads-lite'
+    exclude group: 'com.google.android.ump', module: 'user-messaging-platform'
+    exclude group: 'com.facebook.android', module: 'audience-network-sdk'
+    exclude group: 'com.facebook.android', module: 'facebook-core'
+    exclude group: 'com.facebook.android', module: 'facebook-android-sdk'
+
+    // AdMob adapters that can arrive through other mediation packages
+    exclude group: 'io.appmetrica.analytics', module: 'analytics-ad-revenue-admob-v23'
+    exclude group: 'com.unity3d.ads-mediation', module: 'admob-adapter'
+}
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.webkit:webkit:1.9.0'
@@ -65,4 +89,68 @@ dependencies {
         // Meta analytics ships with the Meta network setup — not needed either
         exclude group: 'com.appodeal.ads.sdk.services', module: 'facebook_analytics'
     }
+}
+
+def forbiddenDependencyCoordinates = [
+    'com.appodeal.ads.sdk.networks:admob',
+    'com.appodeal.ads.sdk.networks:meta',
+    'com.appodeal.ads.sdk.networks:facebook',
+    'com.appodeal.ads.sdk.networks:google_ad_manager',
+    'com.appodeal.ads.sdk.services:facebook_analytics',
+    'com.google.android.gms:play-services-ads',
+    'com.google.android.gms:play-services-ads-lite',
+    'com.google.android.ump:user-messaging-platform',
+    'com.facebook.android:audience-network-sdk',
+    'com.facebook.android:facebook-core',
+    'com.facebook.android:facebook-android-sdk',
+    'io.appmetrica.analytics:analytics-ad-revenue-admob-v23',
+    'com.unity3d.ads-mediation:admob-adapter',
+].asImmutable()
+
+def forbiddenDependencyFileNames = [
+    'admob',
+    'google_ad_manager',
+    'facebook_analytics',
+    'play-services-ads-lite',
+    'user-messaging-platform',
+    'audience-network-sdk',
+    'facebook-core',
+    'facebook-android-sdk',
+].asImmutable()
+
+def verifyNoAdMobOrMeta = tasks.register('verifyNoAdMobOrMeta') {
+    group = 'verification'
+    description = 'Fails if AdMob or Meta/Facebook artifacts are present on a runtime classpath.'
+
+    doLast {
+        def violations = []
+        configurations.matching { configuration ->
+            configuration.name.toLowerCase().endsWith('runtimeclasspath') && configuration.canBeResolved
+        }.each { configuration ->
+            configuration.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+                def module = artifact.moduleVersion.id
+                def coordinate = "${module.group}:${artifact.name}:${module.version}".toLowerCase()
+                def fileName = artifact.file.name.toLowerCase()
+
+                if (forbiddenDependencyCoordinates.any { coordinate.startsWith("${it}:") } ||
+                        forbiddenDependencyFileNames.any { fileName.contains(it) }) {
+                    violations << "${configuration.name}: ${coordinate} (${artifact.file.name})"
+                }
+            }
+        }
+
+        if (!violations.isEmpty()) {
+            throw new GradleException(
+                    "Forbidden AdMob/Meta artifacts detected in Robo Racer:\n - " +
+                            violations.unique().join("\n - ")
+            )
+        }
+
+        logger.lifecycle('verifyNoAdMobOrMeta passed: no forbidden AdMob or Meta/Facebook artifacts found.')
+    }
+}
+
+// Run before every Android build, locally and in CI.
+tasks.matching { task -> task.name == 'preBuild' }.configureEach {
+    dependsOn(verifyNoAdMobOrMeta)
 }
