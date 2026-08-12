@@ -3,7 +3,7 @@
 // Styled to match the game's jelly button look — created as an HTML overlay,
 // no PlayCanvas editor changes needed.
 //
-// AD LOGIC (Yandex Rewarded via AndroidBridge):
+// AD LOGIC (Appodeal Rewarded Video via AndroidBridge):
 //   1. Player taps button → AndroidBridge.showRewardedAd() is called
 //   2. Android shows the full rewarded video
 //   3a. Player watches to the end → Android fires app.fire('reward:double_score')

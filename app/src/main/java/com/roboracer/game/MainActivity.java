@@ -2,7 +2,6 @@ package com.roboracer.game;
 
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.pm.ActivityInfo;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -10,11 +9,8 @@ import android.net.NetworkRequest;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
-import android.view.Window;
-import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -23,95 +19,60 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
 
-import com.yandex.mobile.ads.appopenad.AppOpenAd;
-import com.yandex.mobile.ads.appopenad.AppOpenAdEventListener;
-import com.yandex.mobile.ads.appopenad.AppOpenAdLoadListener;
-import com.yandex.mobile.ads.appopenad.AppOpenAdLoader;
-import com.yandex.mobile.ads.banner.BannerAdEventListener;
-import com.yandex.mobile.ads.banner.BannerAdSize;
-import com.yandex.mobile.ads.banner.BannerAdView;
-import com.yandex.mobile.ads.common.AdError;
-import com.yandex.mobile.ads.common.AdRequest;
-import com.yandex.mobile.ads.common.AdRequestError;
-import com.yandex.mobile.ads.common.ImpressionData;
-import com.yandex.mobile.ads.common.YandexAds;
-import com.yandex.mobile.ads.interstitial.InterstitialAd;
-import com.yandex.mobile.ads.interstitial.InterstitialAdEventListener;
-import com.yandex.mobile.ads.interstitial.InterstitialAdLoadListener;
-import com.yandex.mobile.ads.interstitial.InterstitialAdLoader;
-import com.yandex.mobile.ads.rewarded.Reward;
-import com.yandex.mobile.ads.rewarded.RewardedAd;
-import com.yandex.mobile.ads.rewarded.RewardedAdEventListener;
-import com.yandex.mobile.ads.rewarded.RewardedAdLoadListener;
-import com.yandex.mobile.ads.rewarded.RewardedAdLoader;
+import com.appodeal.ads.Appodeal;
+import com.appodeal.ads.BannerCallbacks;
+import com.appodeal.ads.BannerView;
+import com.appodeal.ads.InterstitialCallbacks;
+import com.appodeal.ads.RewardedVideoCallbacks;
+import com.appodeal.ads.initializing.ApdInitializationCallback;
+import com.appodeal.ads.initializing.ApdInitializationError;
+
+import java.util.List;
 
 /**
  * MainActivity — Robo Racer Android wrapper.
  *
- * AD INTEGRATION SUMMARY:
+ * AD INTEGRATION SUMMARY (Appodeal SDK 3.12.0.1):
  * ─────────────────────────────────────────────────────────────────────────────
- * Banner       : Bottom-of-screen sticky banner. Shown/hidden via JS bridge
- *                calls (AndroidBridge.showBanner / hideBanner). Uses a
- *                FrameLayout so the banner overlays the WebView without
- *                shrinking the game canvas (prevents the "lifted scene" bug).
+ * Banner       : Bottom-of-screen banner rendered into the BannerView declared
+ *                in activity_main.xml. Shown/hidden via the JS bridge
+ *                (AndroidBridge.showBanner / hideBanner). It sits in its own
+ *                LinearLayout row below the WebView, so it never overlaps the
+ *                game UI.
  *
- * Interstitial : Triggered from JS bridge or fall-counter logic.
+ * Interstitial : Triggered from the JS bridge, and also used when the player
+ *                returns to the game from the background (see onResume).
  *
- * Rewarded     : Triggered from JS bridge (double_score_button.js).
+ * Rewarded     : Triggered from the JS bridge (double_score_button.js).
+ *                Reward → app.fire('reward:double_score')
+ *                Skip / failure → app.fire('reward:cancelled')
  *
- * App Open Ad  : Yandex app-open ads require PORTRAIT orientation.  Robo Racer
- *                is a landscape game (sensorLandscape).  Yandex will NEVER
- *                serve app-open ads in landscape — this is a hard SDK
- *                limitation documented at:
- *                https://ads.yandex.com/helpcenter/en/dev/android/app-open-ad
+ * App Open Ad  : Appodeal has no dedicated app-open ad format, so the old
+ *                Yandex app-open flow (and its portrait-flip workaround) is
+ *                gone. Returning from background now shows a normal
+ *                interstitial, which works fine in landscape.
  *
- *                FIX: We temporarily flip to portrait, show the ad, then flip
- *                back.  This is the only reliable workaround.  We also use
- *                DefaultProcessLifecycleObserver (the Yandex-recommended
- *                approach) instead of manual wasInBackground tracking.
- *
- * BANNER CANVAS-FIT FIX:
- * ─────────────────────────────────────────────────────────────────────────────
- * The old LinearLayout + layout_weight="1" layout shrinks the WebView height
- * when the banner becomes visible, which makes the PlayCanvas scene appear
- * "lifted" because the canvas was rendered for the full-screen height.
- *
- * The new FrameLayout layout keeps the WebView at full screen size and
- * overlays the banner on top.  The WebView is given bottom padding equal
- * to the banner height so the canvas reflows correctly without shrinking.
+ * NETWORKS     : AdMob and Meta Audience Network are excluded in
+ *                app/build.gradle — see the comment there.
  */
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "RoboRacer";
 
-    private static final String BANNER_AD_UNIT_ID       = "R-M-19649179-4";
-    private static final String INTERSTITIAL_AD_UNIT_ID = "R-M-19649179-1";
-    private static final String REWARDED_AD_UNIT_ID     = "R-M-19649179-3";
-    private static final String APP_OPEN_AD_UNIT_ID     = "R-M-19649179-2";
+    /** Appodeal app key (Appodeal dashboard → App settings). */
+    private static final String APPODEAL_APP_KEY =
+            "83fb7616da22b8f43189122019d672888622fdf87eff87d3";
 
-    // Yandex demo IDs for testing (swap with real IDs in production):
-    // "demo-banner-ad-yandex", "demo-interstitial-ad-yandex",
-    // "demo-rewarded-yandex", "demo-appopenad-yandex"
+    private static final int AD_TYPES =
+            Appodeal.BANNER_VIEW | Appodeal.INTERSTITIAL | Appodeal.REWARDED_VIDEO;
 
-    private WebView      webView;
-    private BannerAdView bannerAdView;
-
-    private AppOpenAdLoader      appOpenAdLoader;
-    private InterstitialAdLoader interstitialAdLoader;
-    private RewardedAdLoader     rewardedAdLoader;
-
-    private AppOpenAd      appOpenAd;
-    private InterstitialAd interstitialAd;
-    private RewardedAd     rewardedAd;
+    private WebView    webView;
+    private BannerView bannerView;
 
     private boolean bannerLoaded    = false;
     private boolean bannerRequested = true; // auto-show banner as soon as it loads
-    private boolean appOpenShown    = false;
-    private boolean wasInBackground = false; // for app-open ad on foreground
-
-    // Track whether we temporarily flipped to portrait for app-open ad
-    private boolean portraitOverrideActive = false;
-    private boolean waitingForPortraitFlip = false;
+    private boolean rewardEarned    = false;
+    private boolean wasInBackground = false;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -119,8 +80,9 @@ public class MainActivity extends AppCompatActivity {
     private ConnectivityManager.NetworkCallback networkCallback;
     private AlertDialog noNetworkDialog;
     private boolean appStarted = false;
+    private boolean adsInitialized = false;
 
-    // ── Lifecycle: App Open Ad via ProcessLifecycleObserver ────────────────────
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -140,31 +102,10 @@ public class MainActivity extends AppCompatActivity {
     private void startApp() {
         appStarted = true;
 
-        bannerAdView = findViewById(R.id.bannerAdView);
-        bannerAdView.setVisibility(View.GONE);
+        bannerView = findViewById(R.id.appodealBannerView);
+        bannerView.setVisibility(View.GONE);
 
-        appOpenAdLoader      = new AppOpenAdLoader(this);
-        interstitialAdLoader = new InterstitialAdLoader(this);
-        rewardedAdLoader     = new RewardedAdLoader(this);
-
-        // FIX: Initialize Yandex first, then set the banner size AND start loading inside
-        // a single post() callback so setAdSize() is always called before loadAd().
-        // (Previously calculateAndSetBannerSize and initBannerAd were in separate callbacks
-        // with no ordering guarantee between them.)
-        YandexAds.initialize(this, () -> {
-            Log.i(TAG, "YandexAds initialized");
-            // Both size and load happen sequentially in one post() — ordering guaranteed.
-            bannerAdView.post(() -> {
-                calculateAndSetBannerSize();
-                initBannerAd();
-            });
-            loadAppOpenAd();
-            loadInterstitialAd();
-            loadRewardedAd();
-
-            // App-open ad on foreground is handled by onResume() via wasInBackground flag.
-        });
-
+        initAppodeal();
         initWebView();
     }
 
@@ -172,15 +113,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
-        // Only restore landscape when the 350ms delay has elapsed (ad is on screen).
-        // If waitingForPortraitFlip is still true the ad hasn't shown yet — don't flip back early.
-        if (portraitOverrideActive && !waitingForPortraitFlip) {
-            restoreLandscape();
-        }
-        // Show app-open ad when returning from background.
+        // Returning from background — Appodeal has no app-open format, so we
+        // show a regular interstitial instead.
         if (wasInBackground && appStarted) {
             wasInBackground = false;
-            showAppOpenAdInternal();
+            mainHandler.postDelayed(this::showInterstitialAd, 300);
         }
     }
 
@@ -196,14 +133,13 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         unregisterNetworkCallback();
         if (noNetworkDialog != null && noNetworkDialog.isShowing()) noNetworkDialog.dismiss();
-        if (appOpenAdLoader      != null) appOpenAdLoader.cancelLoading();
-        if (interstitialAdLoader != null) interstitialAdLoader.cancelLoading();
-        if (rewardedAdLoader     != null) rewardedAdLoader.cancelLoading();
-        if (appOpenAd      != null) { appOpenAd.setAdEventListener(null);      appOpenAd = null; }
-        if (interstitialAd != null) { interstitialAd.setAdEventListener(null); interstitialAd = null; }
-        if (rewardedAd     != null) { rewardedAd.setAdEventListener(null);     rewardedAd = null; }
-        if (bannerAdView   != null) { bannerAdView.destroy();                  bannerAdView = null; }
-        if (webView        != null) { webView.destroy();                        webView = null; }
+        if (adsInitialized) {
+            Appodeal.setBannerCallbacks(null);
+            Appodeal.setInterstitialCallbacks(null);
+            Appodeal.setRewardedVideoCallbacks(null);
+        }
+        bannerView = null;
+        if (webView != null) { webView.destroy(); webView = null; }
     }
 
     // ── Network monitoring ────────────────────────────────────────────────────
@@ -264,301 +200,125 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    // ── Banner ────────────────────────────────────────────────────────────────
+    // ── Appodeal init ─────────────────────────────────────────────────────────
 
-    /**
-     * Calculate the adaptive sticky banner size using the full screen width.
-     * Uses BannerAdSize.sticky() (SDK v8 API) with the available width in dp.
-     */
-    private void calculateAndSetBannerSize() {
-        DisplayMetrics metrics = getResources().getDisplayMetrics();
-        int widthPx = metrics.widthPixels;
-        float density = metrics.density;
-        int widthDp = (int) (widthPx / density);
-        bannerAdView.setAdSize(BannerAdSize.sticky(this, widthDp));
-        Log.i(TAG, "Banner size set to sticky, width=" + widthDp + "dp");
-    }
+    private void initAppodeal() {
+        Appodeal.setTesting(false);
+        // Auto-cache keeps interstitial / rewarded / banner inventory ready.
+        Appodeal.setAutoCache(AD_TYPES, true);
+        Appodeal.setBannerViewId(R.id.appodealBannerView);
+        Appodeal.setSharedAdsInstanceAcrossActivities(true);
 
-    private void initBannerAd() {
-        bannerAdView.setBannerAdEventListener(new BannerAdEventListener() {
+        registerAdCallbacks();
+
+        Appodeal.initialize(this, APPODEAL_APP_KEY, AD_TYPES, new ApdInitializationCallback() {
             @Override
-            public void onAdLoaded() {
-                bannerLoaded = true;
-                Log.i(TAG, "Banner ad loaded");
-                // If the game already requested the banner while it was loading, show it now
-                if (bannerRequested) {
-                    showBannerView();
+            public void onInitializationFinished(List<ApdInitializationError> errors) {
+                adsInitialized = true;
+                if (errors != null && !errors.isEmpty()) {
+                    for (ApdInitializationError e : errors) {
+                        Log.w(TAG, "Appodeal init issue: " + e.toString());
+                    }
+                } else {
+                    Log.i(TAG, "Appodeal initialized successfully");
                 }
-            }
-            @Override
-            public void onAdFailedToLoad(AdRequestError e) {
-                bannerLoaded = false;
-                Log.w(TAG, "Banner ad failed to load: " + e.toString());
-            }
-            @Override public void onAdClicked() {
-                Log.i(TAG, "Banner clicked");
-            }
-            @Override public void onImpression(ImpressionData d) {
-                Log.i(TAG, "Banner impression");
+                // Kick off the banner request; it is shown from onBannerLoaded.
+                mainHandler.post(() -> Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW));
             }
         });
-        bannerAdView.loadAd(new AdRequest.Builder(BANNER_AD_UNIT_ID).build());
-        Log.i(TAG, "Banner ad load request sent for unit: " + BANNER_AD_UNIT_ID);
     }
 
-    /**
-     * Show the banner below the WebView.
-     * LinearLayout naturally reserves space for the banner row — no padding tricks needed.
-     */
+    private void registerAdCallbacks() {
+        Appodeal.setBannerCallbacks(new BannerCallbacks() {
+            @Override public void onBannerLoaded(int height, boolean isPrecache) {
+                bannerLoaded = true;
+                Log.i(TAG, "Banner loaded (height=" + height + "dp)");
+                if (bannerRequested) showBannerView();
+            }
+            @Override public void onBannerFailedToLoad() {
+                bannerLoaded = false;
+                Log.w(TAG, "Banner failed to load");
+            }
+            @Override public void onBannerShown() { Log.i(TAG, "Banner shown"); }
+            @Override public void onBannerShowFailed() { Log.w(TAG, "Banner show failed"); }
+            @Override public void onBannerClicked() { Log.i(TAG, "Banner clicked"); }
+            @Override public void onBannerExpired() { bannerLoaded = false; Log.i(TAG, "Banner expired"); }
+        });
+
+        Appodeal.setInterstitialCallbacks(new InterstitialCallbacks() {
+            @Override public void onInterstitialLoaded(boolean isPrecache) { Log.i(TAG, "Interstitial loaded"); }
+            @Override public void onInterstitialFailedToLoad() { Log.w(TAG, "Interstitial failed to load"); }
+            @Override public void onInterstitialShown() { Log.i(TAG, "Interstitial shown"); }
+            @Override public void onInterstitialShowFailed() { Log.w(TAG, "Interstitial show failed"); }
+            @Override public void onInterstitialClicked() { Log.i(TAG, "Interstitial clicked"); }
+            @Override public void onInterstitialClosed() { Log.i(TAG, "Interstitial closed"); }
+            @Override public void onInterstitialExpired() { Log.i(TAG, "Interstitial expired"); }
+        });
+
+        Appodeal.setRewardedVideoCallbacks(new RewardedVideoCallbacks() {
+            @Override public void onRewardedVideoLoaded(boolean isPrecache) { Log.i(TAG, "Rewarded loaded"); }
+            @Override public void onRewardedVideoFailedToLoad() {
+                Log.w(TAG, "Rewarded failed to load");
+            }
+            @Override public void onRewardedVideoShown() { Log.i(TAG, "Rewarded shown"); }
+            @Override public void onRewardedVideoShowFailed() {
+                Log.w(TAG, "Rewarded show failed");
+                fireJsEvent("reward:cancelled");
+            }
+            @Override public void onRewardedVideoClicked() { Log.i(TAG, "Rewarded clicked"); }
+            @Override public void onRewardedVideoFinished(double amount, String name) {
+                rewardEarned = true;
+                Log.i(TAG, "Rewarded finished — reward earned");
+                fireJsEvent("reward:double_score");
+            }
+            @Override public void onRewardedVideoClosed(boolean finished) {
+                Log.i(TAG, "Rewarded closed (finished=" + finished + ")");
+                if (!rewardEarned && !finished) fireJsEvent("reward:cancelled");
+                rewardEarned = false;
+            }
+            @Override public void onRewardedVideoExpired() { Log.i(TAG, "Rewarded expired"); }
+        });
+    }
+
+    // ── Banner ────────────────────────────────────────────────────────────────
+
     private void showBannerView() {
         runOnUiThread(() -> {
-            if (bannerAdView == null) return;
-            bannerAdView.setVisibility(View.VISIBLE);
-            Log.i(TAG, "Banner shown");
+            if (bannerView == null) return;
+            bannerView.setVisibility(View.VISIBLE);
+            Appodeal.show(this, Appodeal.BANNER_VIEW);
+            Log.i(TAG, "Banner visible");
         });
     }
 
     private void hideBannerView() {
         runOnUiThread(() -> {
-            if (bannerAdView != null) bannerAdView.setVisibility(View.GONE);
+            Appodeal.hide(this, Appodeal.BANNER_VIEW);
+            if (bannerView != null) bannerView.setVisibility(View.GONE);
             Log.i(TAG, "Banner hidden");
         });
     }
 
-    // ── App Open Ad ───────────────────────────────────────────────────────────
-
-    /**
-     * CRITICAL FIX: Yandex app-open ads require PORTRAIT orientation.
-     * Our game is landscape (sensorLandscape). We temporarily flip to portrait,
-     * show the ad, then flip back.
-     *
-     * If already in portrait (shouldn't happen in our app), just show directly.
-     */
-    private void showAppOpenAdInternal() {
-        int currentOrientation = getResources().getConfiguration().orientation;
-        if (currentOrientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {
-            // Already portrait — show immediately
-            showAppOpenAd();
-        } else {
-            // Landscape — request portrait. onConfigurationChanged() fires the exact
-            // frame Android confirms portrait, then calls showAppOpenAd() immediately.
-            // No blind timer — cleaner and faster than a fixed 350ms delay.
-            Log.i(TAG, "Requesting portrait for app-open ad");
-            waitingForPortraitFlip = true;
-            portraitOverrideActive = true;
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        }
-    }
-
-    @Override
-    public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        if (waitingForPortraitFlip &&
-                newConfig.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {
-            // Portrait is confirmed — show the ad right now
-            waitingForPortraitFlip = false;
-            showAppOpenAd();
-        }
-    }
-
-    private void restoreLandscape() {
-        portraitOverrideActive = false;
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-        Log.i(TAG, "Restored sensorLandscape orientation");
-    }
-
-    private void loadAppOpenAd() {
-        appOpenAdLoader.loadAd(
-            new AdRequest.Builder(APP_OPEN_AD_UNIT_ID).build(),
-            new AppOpenAdLoadListener() {
-                @Override
-                public void onAdLoaded(AppOpenAd ad) {
-                    appOpenAd = ad;
-                    Log.i(TAG, "App-open ad loaded successfully");
-                    // Cold Start: Show immediately on first load if not shown yet
-                    if (!appOpenShown) {
-                        mainHandler.postDelayed(() -> showAppOpenAdInternal(), 500);
-                    }
-                }
-                @Override
-                public void onAdFailedToLoad(AdRequestError e) {
-                    Log.w(TAG, "App-open ad failed to load: " + e.toString());
-                    appOpenAd = null;
-                }
-            }
-        );
-    }
-
-    private void showAppOpenAd() {
-        if (appOpenAd == null) {
-            Log.w(TAG, "App-open ad is null, preloading for next time");
-            // Must restore landscape here — we may have already flipped to portrait
-            // for this ad attempt. Without this the game stays portrait permanently.
-            if (portraitOverrideActive) {
-                mainHandler.post(() -> restoreLandscape());
-            }
-            loadAppOpenAd();
-            return;
-        }
-        appOpenAd.setAdEventListener(new AppOpenAdEventListener() {
-            @Override public void onAdShown() {
-                appOpenShown = true;
-                Log.i(TAG, "App-open ad shown");
-            }
-            @Override public void onAdDismissed() {
-                Log.i(TAG, "App-open ad dismissed");
-                appOpenAd = null;
-                // Restore landscape after dismissing
-                if (portraitOverrideActive) {
-                    mainHandler.post(() -> restoreLandscape());
-                }
-                loadAppOpenAd();
-            }
-            @Override public void onAdFailedToShow(AdError e) {
-                Log.w(TAG, "App-open ad failed to show: " + e.toString());
-                appOpenAd = null;
-                // Restore landscape even on failure
-                if (portraitOverrideActive) {
-                    mainHandler.post(() -> restoreLandscape());
-                }
-                loadAppOpenAd();
-            }
-            @Override public void onAdClicked() {
-                Log.i(TAG, "App-open ad clicked");
-            }
-            @Override public void onAdImpression(ImpressionData d) {
-                Log.i(TAG, "App-open ad impression");
-            }
-        });
-        try {
-            appOpenAd.show(this);
-        } catch (Exception e) {
-            Log.e(TAG, "Exception showing app-open ad: " + e.getMessage());
-            appOpenAd = null;
-            if (portraitOverrideActive) {
-                mainHandler.post(() -> restoreLandscape());
-            }
-            loadAppOpenAd();
-        }
-    }
-
     // ── Interstitial ──────────────────────────────────────────────────────────
 
-    private void loadInterstitialAd() {
-        interstitialAdLoader.loadAd(
-            new AdRequest.Builder(INTERSTITIAL_AD_UNIT_ID).build(),
-            new InterstitialAdLoadListener() {
-                @Override
-                public void onAdLoaded(InterstitialAd ad) {
-                    interstitialAd = ad;
-                    Log.i(TAG, "Interstitial ad loaded");
-                }
-                @Override
-                public void onAdFailedToLoad(AdRequestError e) {
-                    interstitialAd = null;
-                    Log.w(TAG, "Interstitial ad failed to load: " + e.toString());
-                }
-            }
-        );
-    }
-
     private void showInterstitialAd() {
-        if (interstitialAd == null) {
-            Log.w(TAG, "Interstitial ad not ready, skipping");
+        if (!Appodeal.isLoaded(Appodeal.INTERSTITIAL)) {
+            Log.w(TAG, "Interstitial not ready, skipping");
             return;
         }
-        interstitialAd.setAdEventListener(new InterstitialAdEventListener() {
-            @Override public void onAdShown() {
-                Log.i(TAG, "Interstitial shown");
-            }
-            @Override public void onAdDismissed() {
-                Log.i(TAG, "Interstitial dismissed");
-                interstitialAd = null;
-                loadInterstitialAd();
-            }
-            @Override public void onAdFailedToShow(AdError e) {
-                Log.w(TAG, "Interstitial failed to show: " + e.toString());
-                interstitialAd = null;
-                loadInterstitialAd();
-            }
-            @Override public void onAdClicked() {
-                Log.i(TAG, "Interstitial clicked");
-            }
-            @Override public void onAdImpression(ImpressionData d) {
-                Log.i(TAG, "Interstitial impression");
-            }
-        });
-        try {
-            interstitialAd.show(this);
-        } catch (Exception e) {
-            Log.e(TAG, "Exception showing interstitial: " + e.getMessage());
-            interstitialAd = null;
-            loadInterstitialAd();
-        }
+        Appodeal.show(this, Appodeal.INTERSTITIAL);
     }
 
     // ── Rewarded ──────────────────────────────────────────────────────────────
 
-    private void loadRewardedAd() {
-        rewardedAdLoader.loadAd(
-            new AdRequest.Builder(REWARDED_AD_UNIT_ID).build(),
-            new RewardedAdLoadListener() {
-                @Override
-                public void onAdLoaded(RewardedAd ad) {
-                    rewardedAd = ad;
-                    Log.i(TAG, "Rewarded ad loaded");
-                }
-                @Override
-                public void onAdFailedToLoad(AdRequestError e) {
-                    rewardedAd = null;
-                    Log.w(TAG, "Rewarded ad failed to load: " + e.toString());
-                    fireJsEvent("reward:cancelled");
-                }
-            }
-        );
-    }
-
     private void showRewardedAdInternal() {
-        if (rewardedAd == null) {
-            Log.w(TAG, "Rewarded ad not ready, firing cancel");
+        if (!Appodeal.isLoaded(Appodeal.REWARDED_VIDEO)) {
+            Log.w(TAG, "Rewarded not ready, firing cancel");
             fireJsEvent("reward:cancelled");
             return;
         }
-        rewardedAd.setAdEventListener(new RewardedAdEventListener() {
-            private boolean rewarded = false;
-            @Override public void onRewarded(Reward r) {
-                rewarded = true;
-                fireJsEvent("reward:double_score");
-                Log.i(TAG, "Rewarded ad: reward earned");
-            }
-            @Override public void onAdShown() {
-                Log.i(TAG, "Rewarded ad shown");
-            }
-            @Override public void onAdDismissed() {
-                Log.i(TAG, "Rewarded ad dismissed");
-                rewardedAd = null;
-                loadRewardedAd();
-                if (!rewarded) fireJsEvent("reward:cancelled");
-            }
-            @Override public void onAdFailedToShow(AdError e) {
-                Log.w(TAG, "Rewarded ad failed to show: " + e.toString());
-                rewardedAd = null;
-                loadRewardedAd();
-                fireJsEvent("reward:cancelled");
-            }
-            @Override public void onAdClicked() {
-                Log.i(TAG, "Rewarded ad clicked");
-            }
-            @Override public void onAdImpression(ImpressionData d) {
-                Log.i(TAG, "Rewarded ad impression");
-            }
-        });
-        try {
-            rewardedAd.show(this);
-        } catch (Exception e) {
-            Log.e(TAG, "Exception showing rewarded ad: " + e.getMessage());
-            rewardedAd = null;
-            loadRewardedAd();
+        rewardEarned = false;
+        if (!Appodeal.show(this, Appodeal.REWARDED_VIDEO)) {
             fireJsEvent("reward:cancelled");
         }
     }
@@ -607,9 +367,7 @@ public class MainActivity extends AppCompatActivity {
             Log.i(TAG, "JS bridge: showBanner called");
             bannerRequested = true;
             mainHandler.post(() -> {
-                if (bannerLoaded) {
-                    showBannerView();
-                }
+                if (bannerLoaded) showBannerView();
             });
         }
         @JavascriptInterface

@@ -3,15 +3,16 @@ plugins {
 }
 
 android {
-    compileSdk 34
+    compileSdk 35
     namespace 'com.roboracer.game'
 
     defaultConfig {
         applicationId "com.roboracer.game"
-        minSdk 21
-        targetSdk 34
+        minSdk 23
+        targetSdk 35
         versionCode 1
         versionName "1.0"
+        multiDexEnabled true
     }
 
     signingConfigs {
@@ -42,14 +43,26 @@ android {
     packagingOptions {
         exclude 'META-INF/LICENSE'
         exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/*.kotlin_module'
+        pickFirst 'META-INF/AL2.0'
+        pickFirst 'META-INF/LGPL2.1'
     }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.webkit:webkit:1.9.0'
-    // Yandex Mobile Ads SDK v8.2.0 (latest as of July 2026)
-    implementation 'com.yandex.android:mobileads:8.2.0'
-    // Required for DefaultProcessLifecycleObserver (app-open ad auto-trigger)
-    implementation 'androidx.lifecycle:lifecycle-process:2.6.2'
+
+    // ── Appodeal SDK (latest: 3.12.0.1) ──────────────────────────────────────
+    // AdMob and Meta (Facebook) Audience Network are EXCLUDED on purpose:
+    // both require extra app-level setup — AdMob needs its own Google UMP/CMP
+    // consent flow for UK/EU users and an app-id in the manifest, Meta needs a
+    // separate Audience Network app/placement setup. Excluding them keeps the
+    // build simple; all other Appodeal networks still mediate normally.
+    implementation('com.appodeal.ads:sdk:3.12.0.1') {
+        exclude group: 'com.appodeal.ads.sdk.networks', module: 'admob'
+        exclude group: 'com.appodeal.ads.sdk.networks', module: 'meta'
+        // Meta analytics ships with the Meta network setup — not needed either
+        exclude group: 'com.appodeal.ads.sdk.services', module: 'facebook_analytics'
+    }
 }

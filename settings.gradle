@@ -10,8 +10,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Yandex Mobile Ads SDK
-        maven { url = uri("https://maven.yandex.ru/yandex-mobile-ads/") }
+        // Appodeal SDK + bundled mediation networks
+        maven { url = uri("https://artifactory.appodeal.com/appodeal") }
+        // Some Appodeal networks (BidMachine / Verve / Amazon) resolve from JitPack
+        maven { url = uri("https://jitpack.io") }
     }
 }
 rootProject.name = "RoboRacer"
