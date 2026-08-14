@@ -12,7 +12,7 @@
 //                 NEVER shown on the menu / title screen (guarded by window.globals.OnTitle).
 //                 Hidden immediately any time the title screen is shown, the race is paused,
 //                 the player quits, or the race ends.
-//   Interstitial: shown after player falls off track 3 times in one race.
+//   Interstitial: shown after player falls off track 3 times in one race, regardless of win state.
 //   Native     : requested on the title/main-menu screen and hidden when a new race starts.
 //   All bridge calls no-op silently in a plain browser.
 //
@@ -192,10 +192,9 @@ pc.script.create("race_manager", function (app) {
                 this.race_running   = false;
                                 this._bannerShown = false;
                 this.entity.sound.play("finish");
-                // Banner stays visible on the results screen.
-                // Single authoritative interstitial for the win screen.
-                // race_results_script.js does not reliably catch GUI:RaceResults on first enable.
-                setTimeout(function () { _adBridge("showInterstitial"); }, 1500);
+                // No interstitial is triggered by winning. The only gameplay
+                // interstitial trigger is on_respawn() after three falls.
+                // Banner/native placement remains independent of win state.
             }
         },
 
