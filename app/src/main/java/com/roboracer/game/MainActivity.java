@@ -71,7 +71,7 @@ public class MainActivity extends AppCompatActivity {
             "83fb7616da22b8f43189122019d672888622fdf87eff87d3";
 
     private static final int AD_TYPES =
-            Appodeal.BANNER_VIEW | Appodeal.INTERSTITIAL | Appodeal.REWARDED_VIDEO
+            Appodeal.BANNER | Appodeal.INTERSTITIAL | Appodeal.REWARDED_VIDEO
                     | Appodeal.NATIVE;
 
     private WebView    webView;
@@ -245,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
                 // a shell-side fallback; later JS calls remain supported.
                 bannerRequested = true;
                 nativeAdRequested = true;
-                Appodeal.cache(MainActivity.this, Appodeal.BANNER_VIEW, 1);
+                Appodeal.cache(MainActivity.this, Appodeal.BANNER, 1);
                 Appodeal.cache(MainActivity.this, Appodeal.NATIVE, 1);
                 mainHandler.post(() -> {
                     Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW);
