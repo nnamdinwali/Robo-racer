@@ -13,7 +13,7 @@
 //                 Hidden immediately any time the title screen is shown, the race is paused,
 //                 the player quits, or the race ends.
 //   Interstitial: shown after player falls off track 3 times in one race.
-//   Native     : requested on the results screen and hidden when a new race starts.
+//   Native     : requested on the title/main-menu screen and hidden when a new race starts.
 //   All bridge calls no-op silently in a plain browser.
 //
 // ROOT-CAUSE NOTE:
@@ -123,10 +123,11 @@ pc.script.create("race_manager", function (app) {
 
         GUI_Title: function () {
             // Fired (via app.fire("GUI:Title")) when the menu/title screen is shown.
-            // Banner stays visible on the title screen — no need to hide it.
+            // Native ads belong on the main menu only; never show them over results/gameplay.
             this.race_active  = false;
             this.race_running = false;
             this._bannerShown = false;
+            _adBridge("showNativeAd");
         },
 
         GUI_Pause: function () {
@@ -190,7 +191,6 @@ pc.script.create("race_manager", function (app) {
                 this.race_active    = false;
                 this.race_running   = false;
                                 this._bannerShown = false;
-                _adBridge("showNativeAd");
                 this.entity.sound.play("finish");
                 // Banner stays visible on the results screen.
                 // Single authoritative interstitial for the win screen.

@@ -240,7 +240,10 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     Log.i(TAG, "Appodeal initialized successfully");
                 }
-                // Kick off the banner request; it is shown from onBannerLoaded.
+                // Explicitly request both view formats. Auto-cache remains enabled, but
+                // these calls make the banner/menu-native flow deterministic after init.
+                Appodeal.cache(MainActivity.this, Appodeal.BANNER_VIEW, 1);
+                Appodeal.cache(MainActivity.this, Appodeal.NATIVE, 1);
                 mainHandler.post(() -> Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW));
                 if (nativeAdRequested) showNativeAdInternal();
             }
