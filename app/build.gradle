@@ -8,7 +8,7 @@ android {
 
     defaultConfig {
         applicationId "com.roboracer.game"
-        minSdk 23
+        minSdk 24
         targetSdk 35
         versionCode 1
         versionName "1.0"
@@ -77,18 +77,33 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.webkit:webkit:1.9.0'
 
-    // ── Appodeal SDK (latest: 3.12.0.1) ──────────────────────────────────────
-    // AdMob and Meta (Facebook) Audience Network are EXCLUDED on purpose:
-    // both require extra app-level setup — AdMob needs its own Google UMP/CMP
-    // consent flow for UK/EU users and an app-id in the manifest, Meta needs a
-    // separate Audience Network app/placement setup. Excluding them keeps the
-    // build simple; all other Appodeal networks still mediate normally.
-    implementation('com.appodeal.ads:sdk:3.12.0.1') {
-        exclude group: 'com.appodeal.ads.sdk.networks', module: 'admob'
-        exclude group: 'com.appodeal.ads.sdk.networks', module: 'meta'
-        // Meta analytics ships with the Meta network setup — not needed either
-        exclude group: 'com.appodeal.ads.sdk.services', module: 'facebook_analytics'
-    }
+    // Appodeal SDK 4.3.0. AdMob and Meta/Facebook adapters are intentionally
+    // omitted because this project must retain its existing protective setup.
+    implementation 'com.appodeal.ads.sdk:core:4.3.0'
+    implementation 'com.appodeal.ads.sdk.adapters:applovin:13.6.3.0'
+    implementation 'com.appodeal.ads.sdk.adapters:applovin_max:13.6.3.0'
+    implementation 'com.appodeal.ads.sdk.adapters:amazon:12.0.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:bidmachine:3.7.1.0'
+    implementation 'com.appodeal.ads.sdk.adapters:bidon:0.14.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:bigo_ads:5.9.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:chartboost:9.10.2.0'
+    implementation 'com.appodeal.ads.sdk.adapters:dt_exchange:8.4.6.0'
+    implementation 'com.appodeal.ads.sdk.adapters:inmobi:11.3.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:ironsource:9.4.4.0'
+    implementation 'com.appodeal.ads.sdk.adapters:level_play:9.4.4.0'
+    implementation 'com.appodeal.ads.sdk.adapters:mintegral:17.1.61.0'
+    implementation 'com.appodeal.ads.sdk.adapters:mobilefuse:1.11.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:moloco:4.3.1.0'
+    implementation 'com.appodeal.ads.sdk.adapters:my_target:5.47.1.0'
+    implementation 'com.appodeal.ads.sdk.adapters:ogury:6.2.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:pubmatic:4.10.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:smaato:22.7.2.0'
+    implementation 'com.appodeal.ads.sdk.adapters:startio:5.2.4.0'
+    implementation 'com.appodeal.ads.sdk.adapters:taurusx:1.12.2.0'
+    implementation 'com.appodeal.ads.sdk.adapters:unity_ads:4.17.0.0'
+    implementation 'com.appodeal.ads.sdk.adapters:verve:3.7.1.0'
+    implementation 'com.appodeal.ads.sdk.adapters:vungle:7.7.4.0'
+    implementation 'com.appodeal.ads.sdk.adapters:yandex:7.17.0.0'
 }
 
 def forbiddenDependencyCoordinates = [

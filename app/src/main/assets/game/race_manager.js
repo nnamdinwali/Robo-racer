@@ -13,6 +13,7 @@
 //                 Hidden immediately any time the title screen is shown, the race is paused,
 //                 the player quits, or the race ends.
 //   Interstitial: shown after player falls off track 3 times in one race.
+//   Native     : requested on the results screen and hidden when a new race starts.
 //   All bridge calls no-op silently in a plain browser.
 //
 // ROOT-CAUSE NOTE:
@@ -93,6 +94,7 @@ pc.script.create("race_manager", function (app) {
             this.race_active    = true;
             this.fall_count     = 0;
             this._bannerShown   = false; // reset so banner can show for this new race
+            _adBridge("hideNativeAd");
             window.globals.CurrentLap = this.race_lap;
             // Banner is shown in race_underway (fired ~1s later when GO! clears).
         },
@@ -187,7 +189,8 @@ pc.script.create("race_manager", function (app) {
                 this.fired_race_end = true;
                 this.race_active    = false;
                 this.race_running   = false;
-                this._bannerShown   = false;
+                                this._bannerShown = false;
+                _adBridge("showNativeAd");
                 this.entity.sound.play("finish");
                 // Banner stays visible on the results screen.
                 // Single authoritative interstitial for the win screen.

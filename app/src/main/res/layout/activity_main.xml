@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  LinearLayout stacks WebView on top and the Appodeal BannerView on the bottom.
+  LinearLayout stacks WebView on top, an optional Appodeal native ad, and the
+  existing Appodeal BannerView on the bottom.
   The WebView uses layout_weight="1" so it fills all remaining space.
   When the banner becomes visible it sits in its own row below the game —
   it never overlaps UI elements like the music/speaker icons.
@@ -15,6 +16,12 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
+
+    <com.appodeal.ads.nativead.NativeAdViewNewsFeed
+        android:id="@+id/appodealNativeAdView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
 
     <com.appodeal.ads.BannerView
         android:id="@+id/appodealBannerView"

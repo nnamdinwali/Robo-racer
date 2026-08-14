@@ -24,6 +24,9 @@ import com.appodeal.ads.BannerCallbacks;
 import com.appodeal.ads.BannerView;
 import com.appodeal.ads.InterstitialCallbacks;
 import com.appodeal.ads.RewardedVideoCallbacks;
+import com.appodeal.ads.NativeCallbacks;
+import com.appodeal.ads.NativeAd;
+import com.appodeal.ads.nativead.NativeAdViewNewsFeed;
 import com.appodeal.ads.initializing.ApdInitializationCallback;
 import com.appodeal.ads.initializing.ApdInitializationError;
 
@@ -32,7 +35,7 @@ import java.util.List;
 /**
  * MainActivity — Robo Racer Android wrapper.
  *
- * AD INTEGRATION SUMMARY (Appodeal SDK 3.12.0.1):
+ * AD INTEGRATION SUMMARY (Appodeal SDK 4.3.0):
  * ─────────────────────────────────────────────────────────────────────────────
  * Banner       : Bottom-of-screen banner rendered into the BannerView declared
  *                in activity_main.xml. Shown/hidden via the JS bridge
@@ -52,6 +55,10 @@ import java.util.List;
  *                gone. Returning from background now shows a normal
  *                interstitial, which works fine in landscape.
  *
+ * Native        : Optional News Feed native ad rendered in its own row above
+ *                the banner. It is controlled through the JS bridge and only
+ *                becomes visible after a cached NativeAd is registered.
+ *
  * NETWORKS     : AdMob and Meta Audience Network are excluded in
  *                app/build.gradle — see the comment there.
  */
@@ -64,10 +71,14 @@ public class MainActivity extends AppCompatActivity {
             "83fb7616da22b8f43189122019d672888622fdf87eff87d3";
 
     private static final int AD_TYPES =
-            Appodeal.BANNER_VIEW | Appodeal.INTERSTITIAL | Appodeal.REWARDED_VIDEO;
+            Appodeal.BANNER_VIEW | Appodeal.INTERSTITIAL | Appodeal.REWARDED_VIDEO
+                    | Appodeal.NATIVE;
 
     private WebView    webView;
     private BannerView bannerView;
+    private NativeAdViewNewsFeed nativeAdView;
+    private boolean nativeAdLoaded = false;
+    private boolean nativeAdRequested = false;
 
     private boolean bannerLoaded    = false;
     private boolean bannerRequested = true; // auto-show banner as soon as it loads
@@ -104,6 +115,8 @@ public class MainActivity extends AppCompatActivity {
 
         bannerView = findViewById(R.id.appodealBannerView);
         bannerView.setVisibility(View.GONE);
+        nativeAdView = findViewById(R.id.appodealNativeAdView);
+        nativeAdView.setVisibility(View.GONE);
 
         initAppodeal();
         initWebView();
@@ -137,6 +150,11 @@ public class MainActivity extends AppCompatActivity {
             Appodeal.setBannerCallbacks(null);
             Appodeal.setInterstitialCallbacks(null);
             Appodeal.setRewardedVideoCallbacks(null);
+            Appodeal.setNativeCallbacks(null);
+        }
+        if (nativeAdView != null) {
+            nativeAdView.destroy();
+            nativeAdView = null;
         }
         bannerView = null;
         if (webView != null) { webView.destroy(); webView = null; }
@@ -204,7 +222,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void initAppodeal() {
         Appodeal.setTesting(false);
-        // Auto-cache keeps interstitial / rewarded / banner inventory ready.
+        // Auto-cache keeps interstitial / rewarded / native / banner inventory ready.
         Appodeal.setAutoCache(AD_TYPES, true);
         Appodeal.setBannerViewId(R.id.appodealBannerView);
         Appodeal.setSharedAdsInstanceAcrossActivities(true);
@@ -224,6 +242,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 // Kick off the banner request; it is shown from onBannerLoaded.
                 mainHandler.post(() -> Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW));
+                if (nativeAdRequested) showNativeAdInternal();
             }
         });
     }
@@ -253,6 +272,25 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onInterstitialClicked() { Log.i(TAG, "Interstitial clicked"); }
             @Override public void onInterstitialClosed() { Log.i(TAG, "Interstitial closed"); }
             @Override public void onInterstitialExpired() { Log.i(TAG, "Interstitial expired"); }
+        });
+
+        Appodeal.setNativeCallbacks(new NativeCallbacks() {
+            @Override public void onNativeLoaded() {
+                nativeAdLoaded = true;
+                Log.i(TAG, "Native ad loaded");
+                if (nativeAdRequested) showNativeAdInternal();
+            }
+            @Override public void onNativeFailedToLoad() {
+                nativeAdLoaded = false;
+                Log.w(TAG, "Native ad failed to load");
+            }
+            @Override public void onNativeShown(NativeAd nativeAd) { Log.i(TAG, "Native ad shown"); }
+            @Override public void onNativeShowFailed(NativeAd nativeAd) { Log.w(TAG, "Native ad show failed"); }
+            @Override public void onNativeClicked(NativeAd nativeAd) { Log.i(TAG, "Native ad clicked"); }
+            @Override public void onNativeExpired() {
+                nativeAdLoaded = false;
+                Log.i(TAG, "Native ad expired");
+            }
         });
 
         Appodeal.setRewardedVideoCallbacks(new RewardedVideoCallbacks() {
@@ -296,6 +334,38 @@ public class MainActivity extends AppCompatActivity {
             Appodeal.hide(this, Appodeal.BANNER_VIEW);
             if (bannerView != null) bannerView.setVisibility(View.GONE);
             Log.i(TAG, "Banner hidden");
+        });
+    }
+
+    // ── Native ─────────────────────────────────────────────────────────────────
+
+    private void showNativeAdInternal() {
+        runOnUiThread(() -> {
+            if (nativeAdView == null || !Appodeal.isLoaded(Appodeal.NATIVE)) {
+                Log.w(TAG, "Native ad not ready, skipping");
+                return;
+            }
+            List<NativeAd> ads = Appodeal.getNativeAds(1);
+            if (ads == null || ads.isEmpty()) {
+                nativeAdLoaded = false;
+                Log.w(TAG, "Native ad cache was empty, skipping");
+                return;
+            }
+            nativeAdView.registerView(ads.get(0));
+            nativeAdView.setVisibility(View.VISIBLE);
+            nativeAdLoaded = false;
+            Log.i(TAG, "Native ad registered");
+        });
+    }
+
+    private void hideNativeAd() {
+        runOnUiThread(() -> {
+            if (nativeAdView != null) {
+                nativeAdView.destroy();
+                nativeAdView.setVisibility(View.GONE);
+            }
+            nativeAdRequested = false;
+            Log.i(TAG, "Native ad hidden");
         });
     }
 
@@ -375,6 +445,21 @@ public class MainActivity extends AppCompatActivity {
             Log.i(TAG, "JS bridge: hideBanner called");
             bannerRequested = false;
             mainHandler.post(() -> hideBannerView());
+        }
+        @JavascriptInterface
+        public void showNativeAd() {
+            Log.i(TAG, "JS bridge: showNativeAd called");
+            nativeAdRequested = true;
+            mainHandler.post(() -> showNativeAdInternal());
+        }
+        @JavascriptInterface
+        public void hideNativeAd() {
+            Log.i(TAG, "JS bridge: hideNativeAd called");
+            mainHandler.post(() -> hideNativeAd());
+        }
+        @JavascriptInterface
+        public boolean isNativeAdLoaded() {
+            return nativeAdLoaded;
         }
         @JavascriptInterface
         public void showInterstitial() {
