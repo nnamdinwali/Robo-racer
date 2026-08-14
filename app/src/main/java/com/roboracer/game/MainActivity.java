@@ -240,12 +240,17 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     Log.i(TAG, "Appodeal initialized successfully");
                 }
-                // Explicitly request both view formats. Auto-cache remains enabled, but
-                // these calls make the banner/menu-native flow deterministic after init.
+                // The first title-screen event can occur before the WebView bridge and
+                // race-manager listeners are ready. Request the initial menu ads here as
+                // a shell-side fallback; later JS calls remain supported.
+                bannerRequested = true;
+                nativeAdRequested = true;
                 Appodeal.cache(MainActivity.this, Appodeal.BANNER_VIEW, 1);
                 Appodeal.cache(MainActivity.this, Appodeal.NATIVE, 1);
-                mainHandler.post(() -> Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW));
-                if (nativeAdRequested) showNativeAdInternal();
+                mainHandler.post(() -> {
+                    Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW);
+                    showNativeAdInternal();
+                });
             }
         });
     }
@@ -364,7 +369,7 @@ public class MainActivity extends AppCompatActivity {
     private void hideNativeAd() {
         runOnUiThread(() -> {
             if (nativeAdView != null) {
-                nativeAdView.destroy();
+                nativeAdView.unregisterView();
                 nativeAdView.setVisibility(View.GONE);
             }
             nativeAdRequested = false;
