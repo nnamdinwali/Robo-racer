@@ -191,10 +191,10 @@ pc.script.create("race_manager", function (app) {
                 this.race_active    = false;
                 this.race_running   = false;
                                 this._bannerShown = false;
+                _adBridge("showNativeAd");
                 this.entity.sound.play("finish");
-                // No interstitial is triggered by winning. The only gameplay
-                // interstitial trigger is on_respawn() after three falls.
-                // Banner/native placement remains independent of win state.
+                // Winning may show a native ad, but it does not trigger an interstitial.
+                // The only gameplay interstitial trigger is on_respawn() after three falls.
             }
         },
 

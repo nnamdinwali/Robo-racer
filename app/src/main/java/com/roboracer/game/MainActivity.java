@@ -245,8 +245,8 @@ public class MainActivity extends AppCompatActivity {
                 // a shell-side fallback; later JS calls remain supported.
                 bannerRequested = true;
                 nativeAdRequested = true;
-                Appodeal.cache(MainActivity.this, Appodeal.BANNER, 1);
-                Appodeal.cache(MainActivity.this, Appodeal.NATIVE, 1);
+                // Auto-cache is enabled above; Appodeal manages the next banner/native
+                // inventory without duplicate manual cache requests.
                 mainHandler.post(() -> {
                     Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW);
                     showNativeAdInternal();
@@ -369,8 +369,7 @@ public class MainActivity extends AppCompatActivity {
     private void hideNativeAd() {
         runOnUiThread(() -> {
             if (nativeAdView != null) {
-                nativeAdView.unregisterView();
-                nativeAdView.setVisibility(View.GONE);
+                nativeAdView.destroy();
             }
             nativeAdRequested = false;
             Log.i(TAG, "Native ad hidden");
