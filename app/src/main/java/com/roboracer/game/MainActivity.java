@@ -248,9 +248,18 @@ public class MainActivity extends AppCompatActivity {
                 // Auto-cache is enabled above; Appodeal manages the next banner/native
                 // inventory without duplicate manual cache requests.
                 mainHandler.post(() -> {
-                    Appodeal.show(MainActivity.this, Appodeal.BANNER_VIEW);
+                    // The custom BannerView must be visible and attached before the
+                    // SDK can render into it. Native registration may race the first
+                    // cache callback, so the callback below remains authoritative.
+                    if (bannerRequested) showBannerView();
                     showNativeAdInternal();
                 });
+                // Give the activity one layout pass before the first custom-view show.
+                // This avoids a silent show failure when the WebView is still measuring.
+                mainHandler.postDelayed(() -> {
+                    if (bannerRequested && bannerLoaded) showBannerView();
+                    if (nativeAdRequested && nativeAdLoaded) showNativeAdInternal();
+                }, 500);
             }
         });
     }
@@ -350,26 +359,36 @@ public class MainActivity extends AppCompatActivity {
     private void showNativeAdInternal() {
         runOnUiThread(() -> {
             if (nativeAdView == null || !Appodeal.isLoaded(Appodeal.NATIVE)) {
-                Log.w(TAG, "Native ad not ready, skipping");
+                Log.w(TAG, "Native ad not ready, waiting for Appodeal callback");
                 return;
             }
             List<NativeAd> ads = Appodeal.getNativeAds(1);
             if (ads == null || ads.isEmpty()) {
                 nativeAdLoaded = false;
-                Log.w(TAG, "Native ad cache was empty, skipping");
+                Log.w(TAG, "Native ad cache was empty, waiting for next callback");
                 return;
             }
-            nativeAdView.registerView(ads.get(0));
-            nativeAdView.setVisibility(View.VISIBLE);
+            boolean registered = nativeAdView.registerView(ads.get(0));
             nativeAdLoaded = false;
-            Log.i(TAG, "Native ad registered");
+            if (registered) {
+                // Appodeal 4.3 makes the template visible after successful
+                // registration; do not force visibility before it is bound.
+                Log.i(TAG, "Native ad registered");
+            } else {
+                nativeAdView.setVisibility(View.GONE);
+                Log.w(TAG, "Native ad registration was rejected");
+            }
         });
     }
 
     private void hideNativeAd() {
         runOnUiThread(() -> {
             if (nativeAdView != null) {
-                nativeAdView.destroy();
+                // Keep the template alive for the next title-screen request.
+                // destroy() permanently tears down the view and prevents later
+                // registerView() calls from rendering a new native ad.
+                nativeAdView.unregisterView();
+                nativeAdView.setVisibility(View.GONE);
             }
             nativeAdRequested = false;
             Log.i(TAG, "Native ad hidden");
