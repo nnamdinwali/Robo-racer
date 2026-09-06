@@ -3,13 +3,13 @@ plugins {
 }
 
 android {
-    compileSdk 35
+    compileSdk 36
     namespace 'com.roboracer.game'
 
     defaultConfig {
         applicationId "com.roboracer.game"
         minSdk 24
-        targetSdk 35
+        targetSdk 36
         versionCode 1
         versionName "1.0"
         multiDexEnabled true
