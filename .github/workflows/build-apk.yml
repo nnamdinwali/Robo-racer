@@ -44,17 +44,24 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > app/keystore.jks
 
-      - name: Build Release APK
+      - name: Build Release APK and AAB
         env:
           KEYSTORE_PATH: keystore.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease bundleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: robo-racer-release
+          name: robo-racer-release-apk
           path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Upload AAB (for Google Play)
+        uses: actions/upload-artifact@v4
+        with:
+          name: robo-racer-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
           retention-days: 30
