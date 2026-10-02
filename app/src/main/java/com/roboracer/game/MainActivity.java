@@ -236,11 +236,13 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     Log.i(TAG, "Appodeal initialized successfully");
                 }
-                // Warm cache only. Actual show is driven by game events via JS bridge.
+                // Warm cache. Banner is always-on for this game.
                 Appodeal.cache(MainActivity.this, Appodeal.INTERSTITIAL);
                 Appodeal.cache(MainActivity.this, Appodeal.REWARDED_VIDEO);
                 Appodeal.cache(MainActivity.this, Appodeal.BANNER);
                 Appodeal.cache(MainActivity.this, Appodeal.NATIVE);
+                bannerRequested = true;
+                mainHandler.post(() -> showBannerView());
             }
         });
     }
