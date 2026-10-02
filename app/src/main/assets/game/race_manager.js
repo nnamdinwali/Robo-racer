@@ -10,10 +10,10 @@
 // AD LOGIC (AndroidBridge):
 //   Banner      : shown on "race_underway" (countdown fully cleared, player is racing).
 //                 NEVER shown on the menu / title screen (guarded by window.globals.OnTitle).
-//                 Hidden immediately any time the title screen is shown, the race is paused,
-//                 the player quits, or the race ends.
-//   Interstitial: shown after player falls off track 3 times in one race, regardless of win state.
-//   Native     : requested on the title/main-menu screen and hidden when a new race starts.
+//                 Hidden when title is shown or race ends.
+//   Interstitial: after 2 falls off track in one race (any track), AND when the player wins (race_end).
+//   Native     : leaderboard only (High_Score_Menu onEnable/onDisable). Not on title or race end.
+//   Rewarded   : finish screen watch-ad button (double_score_button.js).
 //   All bridge calls no-op silently in a plain browser.
 //
 // ROOT-CAUSE NOTE:
@@ -122,12 +122,12 @@ pc.script.create("race_manager", function (app) {
         },
 
         GUI_Title: function () {
-            // Fired (via app.fire("GUI:Title")) when the menu/title screen is shown.
-            // Native ads belong on the main menu only; never show them over results/gameplay.
+            // Menu/title screen — hide gameplay ads. Native is only for leaderboard.
             this.race_active  = false;
             this.race_running = false;
             this._bannerShown = false;
-            _adBridge("showNativeAd");
+            _adBridge("hideBanner");
+            _adBridge("hideNativeAd");
         },
 
         GUI_Pause: function () {
@@ -146,9 +146,10 @@ pc.script.create("race_manager", function (app) {
         // ── Fall / respawn ────────────────────────────────────────────────────
 
         on_respawn: function () {
+            // Fires on every track (kill volumes fire "respawn"). Count is per race, any track.
             if (!this.race_active) return;
             this.fall_count++;
-            if (this.fall_count >= 3) {
+            if (this.fall_count >= 2) {
                 this.fall_count = 0;
                 _adBridge("showInterstitial");
             }
@@ -190,11 +191,12 @@ pc.script.create("race_manager", function (app) {
                 this.fired_race_end = true;
                 this.race_active    = false;
                 this.race_running   = false;
-                                this._bannerShown = false;
-                _adBridge("showNativeAd");
+                this._bannerShown = false;
+                _adBridge("hideBanner");
+                _adBridge("hideNativeAd");
+                // Interstitial when the player wins (any track).
+                _adBridge("showInterstitial");
                 this.entity.sound.play("finish");
-                // Winning may show a native ad, but it does not trigger an interstitial.
-                // The only gameplay interstitial trigger is on_respawn() after three falls.
             }
         },
 
