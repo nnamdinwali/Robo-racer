@@ -268,10 +268,17 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onInterstitialLoaded(boolean isPrecache) {
                 Log.i(TAG, "Interstitial loaded (precache=" + isPrecache + ")");
                 if (pendingInterstitial) {
-                    pendingInterstitial = false;
                     mainHandler.post(() -> {
-                        if (Appodeal.isLoaded(Appodeal.INTERSTITIAL)) {
-                            Appodeal.show(MainActivity.this, Appodeal.INTERSTITIAL);
+                        if (!Appodeal.isLoaded(Appodeal.INTERSTITIAL)) {
+                            return;
+                        }
+                        boolean shown = Appodeal.show(MainActivity.this, Appodeal.INTERSTITIAL);
+                        if (shown) {
+                            pendingInterstitial = false;
+                        } else {
+                            // Keep pending; closed/failed callbacks will cache again.
+                            Log.w(TAG, "Pending interstitial show failed — will retry after next cache");
+                            Appodeal.cache(MainActivity.this, Appodeal.INTERSTITIAL);
                         }
                     });
                 }
@@ -432,9 +439,17 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             if (Appodeal.isLoaded(Appodeal.INTERSTITIAL)) {
-                pendingInterstitial = false;
                 boolean shown = Appodeal.show(this, Appodeal.INTERSTITIAL);
                 Log.i(TAG, "Interstitial show attempted, result=" + shown);
+                if (shown) {
+                    pendingInterstitial = false;
+                } else {
+                    // isLoaded was true but show failed (activity state / network) —
+                    // keep pending and force a fresh cache so it can show on next load.
+                    pendingInterstitial = true;
+                    Appodeal.cache(this, Appodeal.INTERSTITIAL);
+                    Log.w(TAG, "Interstitial show returned false — re-caching");
+                }
             } else {
                 pendingInterstitial = true;
                 Appodeal.cache(this, Appodeal.INTERSTITIAL);
