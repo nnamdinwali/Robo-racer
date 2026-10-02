@@ -43,8 +43,8 @@ import java.util.List;
  *                LinearLayout row below the WebView, so it never overlaps the
  *                game UI.
  *
- * Interstitial : Triggered from the JS bridge, and also used when the player
- *                returns to the game from the background (see onResume).
+ * Interstitial : Triggered from the JS bridge only (2 falls / race win).
+ *                If not cached yet, queues show and displays when load completes.
  *
  * Rewarded     : Triggered from the JS bridge (double_score_button.js).
  *                Reward → app.fire('reward:double_score')
@@ -84,6 +84,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean bannerRequested = true; // auto-show banner as soon as it loads
     private boolean rewardEarned    = false;
     private boolean wasInBackground = false;
+    private boolean pendingInterstitial = false;
+    private boolean pendingRewarded = false;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -126,12 +128,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
-        // Returning from background — Appodeal has no app-open format, so we
-        // show a regular interstitial instead.
-        if (wasInBackground && appStarted) {
-            wasInBackground = false;
-            mainHandler.postDelayed(this::showInterstitialAd, 300);
-        }
+        // Do NOT show interstitial on resume — that steals inventory from falls/wins.
+        wasInBackground = false;
     }
 
     @Override
@@ -221,8 +219,6 @@ public class MainActivity extends AppCompatActivity {
     // ── Appodeal init ─────────────────────────────────────────────────────────
 
     private void initAppodeal() {
-        // Auto-cache keeps interstitial / rewarded / native / banner inventory ready.
-        // Non-live app keys already receive Appodeal test inventory — do not force setTesting.
         Appodeal.setAutoCache(AD_TYPES, true);
         Appodeal.setBannerViewId(R.id.appodealBannerView);
         Appodeal.setSharedAdsInstanceAcrossActivities(true);
@@ -240,26 +236,11 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     Log.i(TAG, "Appodeal initialized successfully");
                 }
-                // The first title-screen event can occur before the WebView bridge and
-                // race-manager listeners are ready. Request the initial menu ads here as
-                // a shell-side fallback; later JS calls remain supported.
-                bannerRequested = true;
-                nativeAdRequested = true;
-                // Auto-cache is enabled above; Appodeal manages the next banner/native
-                // inventory without duplicate manual cache requests.
-                mainHandler.post(() -> {
-                    // The custom BannerView must be visible and attached before the
-                    // SDK can render into it. Native registration may race the first
-                    // cache callback, so the callback below remains authoritative.
-                    if (bannerRequested) showBannerView();
-                    showNativeAdInternal();
-                });
-                // Give the activity one layout pass before the first custom-view show.
-                // This avoids a silent show failure when the WebView is still measuring.
-                mainHandler.postDelayed(() -> {
-                    if (bannerRequested && bannerLoaded) showBannerView();
-                    if (nativeAdRequested && nativeAdLoaded) showNativeAdInternal();
-                }, 500);
+                // Warm cache only. Actual show is driven by game events via JS bridge.
+                Appodeal.cache(MainActivity.this, Appodeal.INTERSTITIAL);
+                Appodeal.cache(MainActivity.this, Appodeal.REWARDED_VIDEO);
+                Appodeal.cache(MainActivity.this, Appodeal.BANNER);
+                Appodeal.cache(MainActivity.this, Appodeal.NATIVE);
             }
         });
     }
@@ -282,13 +263,35 @@ public class MainActivity extends AppCompatActivity {
         });
 
         Appodeal.setInterstitialCallbacks(new InterstitialCallbacks() {
-            @Override public void onInterstitialLoaded(boolean isPrecache) { Log.i(TAG, "Interstitial loaded"); }
-            @Override public void onInterstitialFailedToLoad() { Log.w(TAG, "Interstitial failed to load"); }
+            @Override public void onInterstitialLoaded(boolean isPrecache) {
+                Log.i(TAG, "Interstitial loaded (precache=" + isPrecache + ")");
+                if (pendingInterstitial) {
+                    pendingInterstitial = false;
+                    mainHandler.post(() -> {
+                        if (Appodeal.isLoaded(Appodeal.INTERSTITIAL)) {
+                            Appodeal.show(MainActivity.this, Appodeal.INTERSTITIAL);
+                        }
+                    });
+                }
+            }
+            @Override public void onInterstitialFailedToLoad() {
+                pendingInterstitial = false;
+                Log.w(TAG, "Interstitial failed to load");
+            }
             @Override public void onInterstitialShown() { Log.i(TAG, "Interstitial shown"); }
-            @Override public void onInterstitialShowFailed() { Log.w(TAG, "Interstitial show failed"); }
+            @Override public void onInterstitialShowFailed() {
+                Log.w(TAG, "Interstitial show failed");
+                Appodeal.cache(MainActivity.this, Appodeal.INTERSTITIAL);
+            }
             @Override public void onInterstitialClicked() { Log.i(TAG, "Interstitial clicked"); }
-            @Override public void onInterstitialClosed() { Log.i(TAG, "Interstitial closed"); }
-            @Override public void onInterstitialExpired() { Log.i(TAG, "Interstitial expired"); }
+            @Override public void onInterstitialClosed() {
+                Log.i(TAG, "Interstitial closed — caching next");
+                Appodeal.cache(MainActivity.this, Appodeal.INTERSTITIAL);
+            }
+            @Override public void onInterstitialExpired() {
+                Log.i(TAG, "Interstitial expired — caching next");
+                Appodeal.cache(MainActivity.this, Appodeal.INTERSTITIAL);
+            }
         });
 
         Appodeal.setNativeCallbacks(new NativeCallbacks() {
@@ -311,14 +314,28 @@ public class MainActivity extends AppCompatActivity {
         });
 
         Appodeal.setRewardedVideoCallbacks(new RewardedVideoCallbacks() {
-            @Override public void onRewardedVideoLoaded(boolean isPrecache) { Log.i(TAG, "Rewarded loaded"); }
+            @Override public void onRewardedVideoLoaded(boolean isPrecache) {
+                Log.i(TAG, "Rewarded loaded");
+                if (pendingRewarded) {
+                    pendingRewarded = false;
+                    mainHandler.post(() -> {
+                        if (Appodeal.isLoaded(Appodeal.REWARDED_VIDEO)) {
+                            rewardEarned = false;
+                            Appodeal.show(MainActivity.this, Appodeal.REWARDED_VIDEO);
+                        }
+                    });
+                }
+            }
             @Override public void onRewardedVideoFailedToLoad() {
+                pendingRewarded = false;
                 Log.w(TAG, "Rewarded failed to load");
+                fireJsEvent("reward:cancelled");
             }
             @Override public void onRewardedVideoShown() { Log.i(TAG, "Rewarded shown"); }
             @Override public void onRewardedVideoShowFailed() {
                 Log.w(TAG, "Rewarded show failed");
                 fireJsEvent("reward:cancelled");
+                Appodeal.cache(MainActivity.this, Appodeal.REWARDED_VIDEO);
             }
             @Override public void onRewardedVideoClicked() { Log.i(TAG, "Rewarded clicked"); }
             @Override public void onRewardedVideoFinished(double amount, String name) {
@@ -330,8 +347,12 @@ public class MainActivity extends AppCompatActivity {
                 Log.i(TAG, "Rewarded closed (finished=" + finished + ")");
                 if (!rewardEarned && !finished) fireJsEvent("reward:cancelled");
                 rewardEarned = false;
+                Appodeal.cache(MainActivity.this, Appodeal.REWARDED_VIDEO);
             }
-            @Override public void onRewardedVideoExpired() { Log.i(TAG, "Rewarded expired"); }
+            @Override public void onRewardedVideoExpired() {
+                Log.i(TAG, "Rewarded expired");
+                Appodeal.cache(MainActivity.this, Appodeal.REWARDED_VIDEO);
+            }
         });
     }
 
@@ -402,25 +423,40 @@ public class MainActivity extends AppCompatActivity {
     // ── Interstitial ──────────────────────────────────────────────────────────
 
     private void showInterstitialAd() {
-        if (!Appodeal.isLoaded(Appodeal.INTERSTITIAL)) {
-            Log.w(TAG, "Interstitial not ready, skipping");
-            return;
-        }
-        Appodeal.show(this, Appodeal.INTERSTITIAL);
+        runOnUiThread(() -> {
+            if (!adsInitialized) {
+                pendingInterstitial = true;
+                Log.w(TAG, "Interstitial: SDK not ready, will show when loaded");
+                return;
+            }
+            if (Appodeal.isLoaded(Appodeal.INTERSTITIAL)) {
+                pendingInterstitial = false;
+                boolean shown = Appodeal.show(this, Appodeal.INTERSTITIAL);
+                Log.i(TAG, "Interstitial show attempted, result=" + shown);
+            } else {
+                pendingInterstitial = true;
+                Appodeal.cache(this, Appodeal.INTERSTITIAL);
+                Log.w(TAG, "Interstitial not ready — caching, will show when loaded");
+            }
+        });
     }
 
     // ── Rewarded ──────────────────────────────────────────────────────────────
 
     private void showRewardedAdInternal() {
-        if (!Appodeal.isLoaded(Appodeal.REWARDED_VIDEO)) {
-            Log.w(TAG, "Rewarded not ready, firing cancel");
-            fireJsEvent("reward:cancelled");
-            return;
-        }
-        rewardEarned = false;
-        if (!Appodeal.show(this, Appodeal.REWARDED_VIDEO)) {
-            fireJsEvent("reward:cancelled");
-        }
+        runOnUiThread(() -> {
+            if (Appodeal.isLoaded(Appodeal.REWARDED_VIDEO)) {
+                pendingRewarded = false;
+                rewardEarned = false;
+                if (!Appodeal.show(this, Appodeal.REWARDED_VIDEO)) {
+                    fireJsEvent("reward:cancelled");
+                }
+            } else {
+                pendingRewarded = true;
+                Appodeal.cache(this, Appodeal.REWARDED_VIDEO);
+                Log.w(TAG, "Rewarded not ready — caching, will show when loaded");
+            }
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -466,9 +502,7 @@ public class MainActivity extends AppCompatActivity {
         public void showBanner() {
             Log.i(TAG, "JS bridge: showBanner called");
             bannerRequested = true;
-            mainHandler.post(() -> {
-                if (bannerLoaded) showBannerView();
-            });
+            mainHandler.post(() -> showBannerView());
         }
         @JavascriptInterface
         public void hideBanner() {
