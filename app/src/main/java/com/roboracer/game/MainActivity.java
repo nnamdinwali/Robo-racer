@@ -55,9 +55,9 @@ import java.util.List;
  *                gone. Returning from background now shows a normal
  *                interstitial, which works fine in landscape.
  *
- * Native        : Optional News Feed native ad rendered in its own row above
- *                the banner. It is controlled through the JS bridge and only
- *                becomes visible after a cached NativeAd is registered.
+ * Native        : Shown only on the leaderboard (JS showNativeAd). Stays visible
+ *                until JS hideNativeAd (leave leaderboard / cancel). Reappears
+ *                when the player opens the leaderboard again.
  *
  * NETWORKS     : AdMob is hard-blocked in app/build.gradle.
  *                Meta Audience Network + Yandex + other networks are enabled.
@@ -358,6 +358,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void showNativeAdInternal() {
         runOnUiThread(() -> {
+            if (!nativeAdRequested) {
+                Log.i(TAG, "Native ad show skipped — not requested");
+                return;
+            }
             if (nativeAdView == null || !Appodeal.isLoaded(Appodeal.NATIVE)) {
                 Log.w(TAG, "Native ad not ready, waiting for Appodeal callback");
                 return;
@@ -369,13 +373,13 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             boolean registered = nativeAdView.registerView(ads.get(0));
-            nativeAdLoaded = false;
             if (registered) {
-                // Appodeal 4.3 makes the template visible after successful
-                // registration; do not force visibility before it is bound.
-                Log.i(TAG, "Native ad registered");
+                nativeAdView.setVisibility(View.VISIBLE);
+                nativeAdLoaded = true;
+                Log.i(TAG, "Native ad registered and visible");
             } else {
                 nativeAdView.setVisibility(View.GONE);
+                nativeAdLoaded = false;
                 Log.w(TAG, "Native ad registration was rejected");
             }
         });
