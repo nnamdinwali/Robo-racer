@@ -19,8 +19,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      # Do not install obsolete package "tools" (removed from Android SDK).
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
 
       - name: Cache Gradle packages
         uses: actions/cache@v4
@@ -35,8 +38,9 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Verify AdMob and Meta are excluded
-        run: ./gradlew :app:verifyNoAdMobOrMeta
+      # AdMob only is forbidden — Meta is allowed.
+      - name: Verify AdMob is excluded
+        run: ./gradlew :app:verifyNoAdMob
 
       - name: Decode keystore
         env:
