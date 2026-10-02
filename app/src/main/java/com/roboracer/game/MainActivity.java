@@ -37,27 +37,17 @@ import java.util.List;
  *
  * AD INTEGRATION SUMMARY (Appodeal SDK 4.3.0):
  * ─────────────────────────────────────────────────────────────────────────────
- * Banner       : Bottom-of-screen banner rendered into the BannerView declared
- *                in activity_main.xml. Shown/hidden via the JS bridge
- *                (AndroidBridge.showBanner / hideBanner). It sits in its own
- *                LinearLayout row below the WebView, so it never overlaps the
- *                game UI.
+ * Banner       : Appodeal BANNER_BOTTOM — always on while the activity is alive.
+ *                Does not use the fragile custom BannerView path. JS hideBanner
+ *                is ignored so the bar never disappears mid-session.
  *
- * Interstitial : Triggered from the JS bridge only (2 falls / race win).
- *                If not cached yet, queues show and displays when load completes.
+ * Interstitial : JS only (2 falls / race win). Queues if not loaded yet.
  *
- * Rewarded     : Triggered from the JS bridge (double_score_button.js).
- *                Reward → app.fire('reward:double_score')
- *                Skip / failure → app.fire('reward:cancelled')
+ * Rewarded     : JS (double_score_button). reward:double_score / reward:cancelled.
  *
- * App Open Ad  : Appodeal has no dedicated app-open ad format, so the old
- *                Yandex app-open flow (and its portrait-flip workaround) is
- *                gone. Returning from background now shows a normal
- *                interstitial, which works fine in landscape.
- *
- * Native        : Shown only on the leaderboard (JS showNativeAd). Stays visible
- *                until JS hideNativeAd (leave leaderboard / cancel). Reappears
- *                when the player opens the leaderboard again.
+ * Native        : Leaderboard only. Cached at init; showNativeAd registers into
+ *                NativeAdViewNewsFeed above the banner. hideNativeAd only when
+ *                leaving leaderboard; next open shows again.
  *
  * NETWORKS     : AdMob is hard-blocked in app/build.gradle.
  *                Meta Audience Network + Yandex + other networks are enabled.
@@ -220,6 +210,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void initAppodeal() {
         Appodeal.setAutoCache(AD_TYPES, true);
+        // Custom BannerView kept as optional fallback; primary path is BANNER_BOTTOM.
         Appodeal.setBannerViewId(R.id.appodealBannerView);
         Appodeal.setSharedAdsInstanceAcrossActivities(true);
 
@@ -236,13 +227,16 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     Log.i(TAG, "Appodeal initialized successfully");
                 }
-                // Warm cache. Banner is always-on for this game.
                 Appodeal.cache(MainActivity.this, Appodeal.INTERSTITIAL);
                 Appodeal.cache(MainActivity.this, Appodeal.REWARDED_VIDEO);
                 Appodeal.cache(MainActivity.this, Appodeal.BANNER);
                 Appodeal.cache(MainActivity.this, Appodeal.NATIVE);
+                // Banner always on from first successful init.
                 bannerRequested = true;
-                mainHandler.post(() -> showBannerView());
+                mainHandler.post(() -> showBannerAlways());
+                // Retry banner a few times while mediation warms up.
+                mainHandler.postDelayed(() -> showBannerAlways(), 2000);
+                mainHandler.postDelayed(() -> showBannerAlways(), 5000);
             }
         });
     }
@@ -252,16 +246,29 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onBannerLoaded(int height, boolean isPrecache) {
                 bannerLoaded = true;
                 Log.i(TAG, "Banner loaded (height=" + height + "dp)");
-                if (bannerRequested) showBannerView();
+                if (bannerRequested) showBannerAlways();
             }
             @Override public void onBannerFailedToLoad() {
                 bannerLoaded = false;
-                Log.w(TAG, "Banner failed to load");
+                Log.w(TAG, "Banner failed to load — will retry cache");
+                mainHandler.postDelayed(() -> {
+                    if (bannerRequested) {
+                        Appodeal.cache(MainActivity.this, Appodeal.BANNER);
+                    }
+                }, 3000);
             }
             @Override public void onBannerShown() { Log.i(TAG, "Banner shown"); }
-            @Override public void onBannerShowFailed() { Log.w(TAG, "Banner show failed"); }
+            @Override public void onBannerShowFailed() {
+                Log.w(TAG, "Banner show failed — retry");
+                mainHandler.postDelayed(() -> showBannerAlways(), 2000);
+            }
             @Override public void onBannerClicked() { Log.i(TAG, "Banner clicked"); }
-            @Override public void onBannerExpired() { bannerLoaded = false; Log.i(TAG, "Banner expired"); }
+            @Override public void onBannerExpired() {
+                bannerLoaded = false;
+                Log.i(TAG, "Banner expired — recache and show");
+                Appodeal.cache(MainActivity.this, Appodeal.BANNER);
+                if (bannerRequested) mainHandler.postDelayed(() -> showBannerAlways(), 500);
+            }
         });
 
         Appodeal.setInterstitialCallbacks(new InterstitialCallbacks() {
@@ -312,6 +319,9 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onNativeFailedToLoad() {
                 nativeAdLoaded = false;
                 Log.w(TAG, "Native ad failed to load");
+                if (nativeAdRequested) {
+                    mainHandler.postDelayed(() -> Appodeal.cache(MainActivity.this, Appodeal.NATIVE), 4000);
+                }
             }
             @Override public void onNativeShown(NativeAd nativeAd) { Log.i(TAG, "Native ad shown"); }
             @Override public void onNativeShowFailed(NativeAd nativeAd) { Log.w(TAG, "Native ad show failed"); }
@@ -365,23 +375,36 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ── Banner ────────────────────────────────────────────────────────────────
+    // ── Banner (always-on) ────────────────────────────────────────────────────
 
-    private void showBannerView() {
+    /** Standard bottom banner — more reliable than custom BannerView alone. */
+    private void showBannerAlways() {
         runOnUiThread(() -> {
-            if (bannerView == null) return;
-            bannerView.setVisibility(View.VISIBLE);
-            Appodeal.show(this, Appodeal.BANNER_VIEW);
-            Log.i(TAG, "Banner visible");
+            if (!adsInitialized) {
+                bannerRequested = true;
+                return;
+            }
+            bannerRequested = true;
+            // Prefer system bottom banner (works without layout gymnastics).
+            boolean shown = Appodeal.show(this, Appodeal.BANNER);
+            if (!shown) {
+                shown = Appodeal.show(this, Appodeal.BANNER_BOTTOM);
+            }
+            // Fallback: custom view path if bottom banner API rejects.
+            if (!shown && bannerView != null) {
+                bannerView.setVisibility(View.VISIBLE);
+                shown = Appodeal.show(this, Appodeal.BANNER_VIEW);
+            }
+            Log.i(TAG, "Banner show attempted, result=" + shown);
+            if (!shown) {
+                Appodeal.cache(this, Appodeal.BANNER);
+            }
         });
     }
 
     private void hideBannerView() {
-        runOnUiThread(() -> {
-            Appodeal.hide(this, Appodeal.BANNER_VIEW);
-            if (bannerView != null) bannerView.setVisibility(View.GONE);
-            Log.i(TAG, "Banner hidden");
-        });
+        // Banner stays on for the whole session (user request). No-op hide.
+        Log.i(TAG, "Banner hide ignored — always-on policy");
     }
 
     // ── Native ─────────────────────────────────────────────────────────────────
@@ -392,16 +415,25 @@ public class MainActivity extends AppCompatActivity {
                 Log.i(TAG, "Native ad show skipped — not requested");
                 return;
             }
-            if (nativeAdView == null || !Appodeal.isLoaded(Appodeal.NATIVE)) {
-                Log.w(TAG, "Native ad not ready, waiting for Appodeal callback");
+            if (nativeAdView == null) {
+                Log.w(TAG, "NativeAdView missing from layout");
+                return;
+            }
+            if (!Appodeal.isLoaded(Appodeal.NATIVE)) {
+                Log.w(TAG, "Native not ready — caching (will show on load if still requested)");
+                Appodeal.cache(this, Appodeal.NATIVE);
                 return;
             }
             List<NativeAd> ads = Appodeal.getNativeAds(1);
             if (ads == null || ads.isEmpty()) {
                 nativeAdLoaded = false;
-                Log.w(TAG, "Native ad cache was empty, waiting for next callback");
+                Log.w(TAG, "Native cache empty — requesting more");
+                Appodeal.cache(this, Appodeal.NATIVE);
                 return;
             }
+            try {
+                nativeAdView.unregisterView();
+            } catch (Exception ignored) {}
             boolean registered = nativeAdView.registerView(ads.get(0));
             if (registered) {
                 nativeAdView.setVisibility(View.VISIBLE);
@@ -410,7 +442,8 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 nativeAdView.setVisibility(View.GONE);
                 nativeAdLoaded = false;
-                Log.w(TAG, "Native ad registration was rejected");
+                Log.w(TAG, "Native registration rejected — recache");
+                Appodeal.cache(this, Appodeal.NATIVE);
             }
         });
     }
@@ -519,13 +552,14 @@ public class MainActivity extends AppCompatActivity {
         public void showBanner() {
             Log.i(TAG, "JS bridge: showBanner called");
             bannerRequested = true;
-            mainHandler.post(() -> showBannerView());
+            mainHandler.post(() -> showBannerAlways());
         }
         @JavascriptInterface
         public void hideBanner() {
-            Log.i(TAG, "JS bridge: hideBanner called");
-            bannerRequested = false;
-            mainHandler.post(() -> hideBannerView());
+            // Always-on: ignore hide from game JS.
+            Log.i(TAG, "JS bridge: hideBanner ignored (banner always on)");
+            bannerRequested = true;
+            mainHandler.post(() -> showBannerAlways());
         }
         @JavascriptInterface
         public void showNativeAd() {
