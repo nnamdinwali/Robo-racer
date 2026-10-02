@@ -8,9 +8,7 @@
 // - on lap 3 "new_lap", sends "race_end" message over broadcast, and stops counting time or laps.
 //
 // AD LOGIC (AndroidBridge):
-//   Banner      : shown on "race_underway" (countdown fully cleared, player is racing).
-//                 NEVER shown on the menu / title screen (guarded by window.globals.OnTitle).
-//                 Hidden when title is shown or race ends.
+//   Banner      : always on — menu, race, pause, results, leaderboard (bottom bar).
 //   Interstitial: after 2 falls off track in one race (any track), AND when the player wins (race_end).
 //   Native     : leaderboard only (High_Score_Menu onEnable/onDisable). Not on title or race end.
 //   Rewarded   : finish screen watch-ad button (double_score_button.js).
@@ -20,9 +18,7 @@
 //   race_start_countdown.js sets countdown_start = true inside onEnable().
 //   GUI_controlhelpdisplay.js auto-dismisses on a timer and enables the
 //   "Race Start Countdown" entity — so the countdown can fire on the title
-//   screen on first load, eventually emitting race_start (race_active = true)
-//   and race_underway.  The fix: every showBanner call is guarded by
-//   !window.globals.OnTitle, AND GUI:Title always hides the banner immediately.
+//   Banner is never hidden by scene changes — only AndroidBridge.showBanner keeps it up.
 
 pc.script.attribute("checkpoint_count","number",4, {
    description: "The highest ID for checkpoints.  A lap is only complete if this one is hit."
@@ -102,21 +98,16 @@ pc.script.create("race_manager", function (app) {
             this.fired_race_end = false;
             this.race_active    = true;
             this.fall_count     = 0;
-            this._bannerShown   = false; // reset so banner can show for this new race
+            _adBridge("showBanner");
+            this._bannerShown   = true;
             _adBridge("hideNativeAd");
             window.globals.CurrentLap = this.race_lap;
-            // Banner is shown in race_underway (fired ~1s later when GO! clears).
         },
 
         race_underway: function () {
-            // Fired by race_start_countdown.js the frame the "GO!" text disappears.
-            // Guard: only show banner when actually racing (not on title/menu).
-            // window.globals.OnTitle is set to true by GUI_Title() / GUI_version_2_manager
-            // and to false only when a track is loaded via _doLoadTrack().
-            if (this.race_active && !window.globals.OnTitle) {
-                _adBridge("showBanner");
-                this._bannerShown = true;
-            }
+            // Banner stays on everywhere — keep requesting so it recovers if it dropped.
+            _adBridge("showBanner");
+            this._bannerShown = true;
         },
 
         GUI_ResetRace: function () {
@@ -131,11 +122,11 @@ pc.script.create("race_manager", function (app) {
         },
 
         GUI_Title: function () {
-            // Menu/title screen — hide gameplay ads. Native is only for leaderboard.
+            // Menu/title — keep banner; native only on leaderboard.
             this.race_active  = false;
             this.race_running = false;
-            this._bannerShown = false;
-            _adBridge("hideBanner");
+            _adBridge("showBanner");
+            this._bannerShown = true;
             _adBridge("hideNativeAd");
         },
 
@@ -146,10 +137,8 @@ pc.script.create("race_manager", function (app) {
 
         GUI_Resume: function () {
             this.race_running = true;
-            // Only restore banner if we are genuinely mid-race (not on menu).
-            if (this.race_active && !window.globals.OnTitle) {
-                _adBridge("showBanner"); // returning to race — show again
-            }
+            _adBridge("showBanner");
+            this._bannerShown = true;
         },
 
         // ── Fall / respawn ────────────────────────────────────────────────────
@@ -200,8 +189,8 @@ pc.script.create("race_manager", function (app) {
                 this.fired_race_end = true;
                 this.race_active    = false;
                 this.race_running   = false;
-                this._bannerShown = false;
-                _adBridge("hideBanner");
+                _adBridge("showBanner");
+                this._bannerShown = true;
                 _adBridge("hideNativeAd");
                 // Interstitial when the player wins (any track).
                 _showInterstitial();
