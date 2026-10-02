@@ -15,6 +15,15 @@ pc.script.attribute("normal_score_tint","rgba",[255,255,255,255],{
 });
 
 
+// Safe Android ad bridge (no-op in browser)
+function _adBridge(method) {
+    try {
+        if (window.AndroidBridge && typeof window.AndroidBridge[method] === "function") {
+            window.AndroidBridge[method]();
+        }
+    } catch (e) {}
+}
+
 pc.script.create('High_Score_Menu_script', function (app) {
     var High_Score_Menu_script = function (entity) {
         this.entity = entity;
@@ -68,6 +77,13 @@ pc.script.create('High_Score_Menu_script', function (app) {
             window.globals.CurrentScoreboardMode = 0;
             this.screen_offset = 0;
             this.clear_leaderboard();
+            // Native ad on leaderboard — stays until hideNativeAd (leave screen / cancel).
+            _adBridge("showNativeAd");
+        },
+
+        onDisable: function() {
+            // Leaving leaderboard — hide native so it can show again next visit.
+            _adBridge("hideNativeAd");
         },
 
 
