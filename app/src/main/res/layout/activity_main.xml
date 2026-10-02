@@ -10,4 +10,16 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
+    <com.appodeal.ads.nativead.NativeAdViewNewsFeed
+        android:id="@+id/appodealNativeAdView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
+    <com.appodeal.ads.BannerView
+        android:id="@+id/appodealBannerView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
 </LinearLayout>
