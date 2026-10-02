@@ -10,10 +10,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Appodeal SDK + bundled mediation networks
-        maven { url = uri("https://artifactory.appodeal.com/appodeal") }
-        // Some Appodeal networks (BidMachine / Verve / Amazon) resolve from JitPack
-        maven { url = uri("https://jitpack.io") }
     }
 }
 rootProject.name = "RoboRacer"
