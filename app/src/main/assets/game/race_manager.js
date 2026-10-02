@@ -37,6 +37,15 @@ function _adBridge(method) {
     } catch (e) {}
 }
 
+// Full-screen ads: short delay so game UI can settle and bridge is ready.
+function _showInterstitial() {
+    try {
+        setTimeout(function () { _adBridge("showInterstitial"); }, 400);
+    } catch (e) {
+        _adBridge("showInterstitial");
+    }
+}
+
 pc.script.create("race_manager", function (app) {
 
     var Race_manager = function (entity) {
@@ -151,7 +160,7 @@ pc.script.create("race_manager", function (app) {
             this.fall_count++;
             if (this.fall_count >= 2) {
                 this.fall_count = 0;
-                _adBridge("showInterstitial");
+                _showInterstitial();
             }
         },
 
@@ -195,7 +204,7 @@ pc.script.create("race_manager", function (app) {
                 _adBridge("hideBanner");
                 _adBridge("hideNativeAd");
                 // Interstitial when the player wins (any track).
-                _adBridge("showInterstitial");
+                _showInterstitial();
                 this.entity.sound.play("finish");
             }
         },
