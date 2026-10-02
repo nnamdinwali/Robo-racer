@@ -221,7 +221,11 @@ public class MainActivity extends AppCompatActivity {
     // ── Appodeal init ─────────────────────────────────────────────────────────
 
     private void initAppodeal() {
-        Appodeal.setTesting(false);
+        // TEST MODE: app is not on Play Store yet — real fill is near zero until networks
+        // are connected + store listing is live. Test ads prove the SDK wiring works.
+        // Set to false before production / Play release.
+        Appodeal.setTesting(true);
+        Appodeal.setLogLevel(com.appodeal.ads.utils.Log.LogLevel.verbose);
         // Auto-cache keeps interstitial / rewarded / native / banner inventory ready.
         Appodeal.setAutoCache(AD_TYPES, true);
         Appodeal.setBannerViewId(R.id.appodealBannerView);
